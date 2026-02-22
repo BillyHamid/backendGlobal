@@ -36,6 +36,7 @@ const allowedOrigins = [
   'http://localhost:5174',
   'http://localhost:5175',
   'http://127.0.0.1:5173',
+  'https://global-ex-woad.vercel.app',
   process.env.FRONTEND_URL
 ].filter(Boolean);
 
@@ -105,20 +106,20 @@ app.use(errorHandler);
 // START SERVER
 // ===================
 
-app.listen(PORT, () => {
+// En production (ex. Render), écouter sur 0.0.0.0 pour accepter les requêtes externes
+const host = process.env.NODE_ENV === 'production' ? '0.0.0.0' : undefined;
+
+app.listen(PORT, host, () => {
   // Initialize push notifications
   initializePush();
-  
-  console.log(`
-╔═══════════════════════════════════════════════════╗
-║                                                   ║
-║   🌍 GLOBAL EXCHANGE API                          ║
-║                                                   ║
-║   Server running on: http://localhost:${PORT}        ║
-║   Environment: ${process.env.NODE_ENV || 'development'}                        ║
-║                                                   ║
-╚═══════════════════════════════════════════════════╝
-  `);
+
+  const apiUrl = process.env.RENDER_EXTERNAL_URL
+    ? `${process.env.RENDER_EXTERNAL_URL}/api`
+    : `http://localhost:${PORT}/api`;
+
+  console.log('\n🌍 GLOBAL EXCHANGE API');
+  console.log('   Port:', PORT, '| Env:', process.env.NODE_ENV || 'development');
+  console.log('   API:', apiUrl, '\n');
 });
 
 module.exports = app;
