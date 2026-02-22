@@ -6,14 +6,9 @@ const { asyncHandler } = require('../middleware/error.middleware');
 const getDashboardStats = asyncHandler(async (req, res) => {
   const user = req.user;
   
-  // Base query conditions based on user role
-  let userCondition = '';
+  // Tous les agents voient toutes les stats (pas de filtre par agent)
+  const userCondition = '';
   const params = [];
-  
-  if (user.role === 'sender_agent' || user.role === 'payer_agent') {
-    userCondition = 'AND (created_by = $1 OR paid_by = $1)';
-    params.push(user.id);
-  }
 
   // Get transfer counts by status
   const statusCounts = await query(`
@@ -185,23 +180,15 @@ const getJournal = asyncHandler(async (req, res) => {
   let params = [];
   let paramCount = 0;
 
-  // Role-based filtering
-  if (user.role === 'sender_agent' || user.role === 'payer_agent') {
-    paramCount++;
-    conditions.push(`(t.created_by = $${paramCount} OR t.paid_by = $${paramCount})`);
-    params.push(user.id);
-  }
+  // Tous les agents voient tout le journal (pas de filtre par agent)
 
-  // Date filter
+  // Date filter (optionnel - si pas de date, afficher tous les transferts)
   if (date) {
     paramCount++;
     conditions.push(`DATE(t.created_at) = $${paramCount}`);
     params.push(date);
-  } else {
-    // Default to today if no date specified
-    paramCount++;
-    conditions.push(`DATE(t.created_at) = CURRENT_DATE`);
   }
+  // Sinon, pas de filtre de date = afficher tous les transferts
 
   // Country filter
   if (country) {
@@ -250,14 +237,17 @@ const getJournal = asyncHandler(async (req, res) => {
     ORDER BY t.created_at ASC
   `, params);
 
-  // Calculate cumulative totals
+  // Cumulative Tmount / Tfees : UNIQUEMENT transferts USA → BF payés (comme sur le dashboard caisse)
+  const isUsaToBf = (row) => row.sender_country === 'USA' && row.beneficiary_country === 'BFA';
   let cumulativeAmount = 0;
   let cumulativeFees = 0;
-  
-  const journal = transfers.rows.map((row, index) => {
-    cumulativeAmount += parseFloat(row.amount_sent) || 0;
-    cumulativeFees += parseFloat(row.fees) || 0;
-    
+
+  const journal = transfers.rows.map((row) => {
+    if (isUsaToBf(row) && row.status === 'paid') {
+      cumulativeAmount += parseFloat(row.amount_sent) || 0;
+      cumulativeFees += parseFloat(row.fees) || 0;
+    }
+
     return {
       id: row.id,
       reference: row.reference,
@@ -293,7 +283,7 @@ const getJournal = asyncHandler(async (req, res) => {
     };
   });
 
-  // Get summary totals
+  // Get summary totals (Tmount / Tfees = USA → BF payés uniquement)
   const summary = await query(`
     SELECT 
       COUNT(*) as total_transfers,
@@ -301,22 +291,27 @@ const getJournal = asyncHandler(async (req, res) => {
       COALESCE(SUM(fees), 0) as total_fees,
       COALESCE(SUM(amount_received), 0) as total_received,
       COUNT(*) FILTER (WHERE status = 'pending') as pending_count,
-      COUNT(*) FILTER (WHERE status = 'paid') as paid_count
+      COUNT(*) FILTER (WHERE status = 'paid') as paid_count,
+      COALESCE(SUM(CASE WHEN sender_country = 'USA' AND beneficiary_country = 'BFA' AND status = 'paid' THEN amount_sent END), 0) as tmount_usd,
+      COALESCE(SUM(CASE WHEN sender_country = 'USA' AND beneficiary_country = 'BFA' AND status = 'paid' THEN fees END), 0) as tfees_usd
     FROM transfers t
     ${whereClause}
   `, params);
 
+  const s = summary.rows[0];
   res.json({
     success: true,
     data: {
       journal,
       summary: {
-        totalTransfers: parseInt(summary.rows[0]?.total_transfers) || 0,
-        totalAmount: parseFloat(summary.rows[0]?.total_amount) || 0,
-        totalFees: parseFloat(summary.rows[0]?.total_fees) || 0,
-        totalReceived: parseFloat(summary.rows[0]?.total_received) || 0,
-        pendingCount: parseInt(summary.rows[0]?.pending_count) || 0,
-        paidCount: parseInt(summary.rows[0]?.paid_count) || 0
+        totalTransfers: parseInt(s?.total_transfers) || 0,
+        totalAmount: parseFloat(s?.total_amount) || 0,
+        totalFees: parseFloat(s?.total_fees) || 0,
+        totalReceived: parseFloat(s?.total_received) || 0,
+        pendingCount: parseInt(s?.pending_count) || 0,
+        paidCount: parseInt(s?.paid_count) || 0,
+        tmountUsd: parseFloat(s?.tmount_usd) || 0,
+        tfeesUsd: parseFloat(s?.tfees_usd) || 0
       }
     }
   });
@@ -332,11 +327,7 @@ const getStatsByCountry = asyncHandler(async (req, res) => {
   let params = [];
   let paramCount = 0;
 
-  if (user.role === 'sender_agent' || user.role === 'payer_agent') {
-    paramCount++;
-    conditions.push(`(t.created_by = $${paramCount} OR t.paid_by = $${paramCount})`);
-    params.push(user.id);
-  }
+  // Tous les agents voient les stats par pays (pas de filtre par agent)
 
   if (date) {
     paramCount++;
@@ -345,6 +336,8 @@ const getStatsByCountry = asyncHandler(async (req, res) => {
   }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const usaWhere = whereClause ? `${whereClause} AND t.sender_country = 'USA'` : "WHERE t.sender_country = 'USA'";
+  const bfWhere = whereClause ? `${whereClause} AND t.beneficiary_country = 'BFA'` : "WHERE t.beneficiary_country = 'BFA'";
 
   // USA stats (sender country)
   const usaStats = await query(`
@@ -355,7 +348,7 @@ const getStatsByCountry = asyncHandler(async (req, res) => {
       COUNT(*) FILTER (WHERE status = 'pending') as pending,
       COUNT(*) FILTER (WHERE status = 'paid') as paid
     FROM transfers t
-    ${whereClause} AND t.sender_country = 'USA'
+    ${usaWhere}
   `, params);
 
   // BF stats (beneficiary country)
@@ -366,7 +359,7 @@ const getStatsByCountry = asyncHandler(async (req, res) => {
       COUNT(*) FILTER (WHERE status = 'pending') as pending,
       COUNT(*) FILTER (WHERE status = 'paid') as paid
     FROM transfers t
-    ${whereClause} AND t.beneficiary_country = 'BFA'
+    ${bfWhere}
   `, params);
 
   res.json({

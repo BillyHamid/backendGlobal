@@ -4,7 +4,7 @@ const { asyncHandler, ApiError } = require('../middleware/error.middleware');
 // @desc    Get all senders
 // @route   GET /api/senders
 const getAll = asyncHandler(async (req, res) => {
-  const { search, page = 1, limit = 50 } = req.query;
+  const { search, country, page = 1, limit = 50 } = req.query;
   const offset = (page - 1) * limit;
 
   let sql = `
@@ -26,15 +26,27 @@ const getAll = asyncHandler(async (req, res) => {
     params.push(`%${search}%`);
   }
 
+  if (country) {
+    paramCount++;
+    sql += ` AND s.country = $${paramCount}`;
+    params.push(country);
+  }
+
+  let countParams = [];
+  if (search) countParams.push(`%${search}%`);
+  if (country) countParams.push(country);
+  let countWhere = 'WHERE 1=1';
+  let c = 0;
+  if (search) { c++; countWhere += ` AND (s.first_name ILIKE $${c} OR s.last_name ILIKE $${c} OR s.phone ILIKE $${c})`; }
+  if (country) { c++; countWhere += ` AND s.country = $${c}`; }
+  const countResult = await query(`SELECT COUNT(*) FROM senders s ${countWhere}`, countParams);
+  const total = parseInt(countResult.rows[0].count);
+
   sql += ' ORDER BY s.created_at DESC';
   sql += ` LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`;
   params.push(limit, offset);
 
   const result = await query(sql, params);
-
-  // Get total count
-  const countResult = await query('SELECT COUNT(*) FROM senders');
-  const total = parseInt(countResult.rows[0].count);
 
   res.json({
     success: true,

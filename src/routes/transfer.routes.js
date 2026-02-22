@@ -3,6 +3,7 @@ const { body, param, query } = require('express-validator');
 const transferController = require('../controllers/transfer.controller');
 const { validate } = require('../middleware/validate.middleware');
 const { authenticate, hasPermission } = require('../middleware/auth.middleware');
+const { uploadProof, validateProofUpload } = require('../middleware/upload.middleware');
 
 const router = express.Router();
 
@@ -47,18 +48,41 @@ router.post('/', hasPermission('transfers.create'), [
   
   // Financial validation
   body('amountSent').isFloat({ min: 1 }).withMessage('Montant invalide'),
-  body('currency').isIn(['USD']).withMessage('Seule la devise USD est supportée'),
+  body('currency').isIn(['USD', 'XOF']).withMessage('Seules les devises USD et XOF sont supportées'),
   body('exchangeRate').isFloat({ min: 1 }).withMessage('Taux de change invalide'),
   body('fees').optional().isFloat({ min: 0 }).withMessage('Frais invalides'),
   
   validate
 ], transferController.create);
 
-// PATCH /api/transfers/:id/pay - Mark transfer as paid
+// PATCH /api/transfers/:id/pay - Mark transfer as paid (legacy - sans preuve)
 router.patch('/:id/pay', hasPermission('transfers.pay'), [
   param('id').isUUID().withMessage('ID invalide'),
   validate
 ], transferController.markAsPaid);
+
+// POST /api/transfers/:id/confirm - Confirm transfer with proof (OBLIGATOIRE)
+router.post('/:id/confirm', hasPermission('transfers.pay'), [
+  param('id').isUUID().withMessage('ID invalide'),
+  validate
+], (req, res, next) => {
+  // Middleware pour gérer les erreurs multer
+  uploadProof(req, res, (err) => {
+    if (err) {
+      return res.status(400).json({
+        success: false,
+        message: err.message || 'Erreur lors de l\'upload du fichier'
+      });
+    }
+    next();
+  });
+}, validateProofUpload, transferController.confirmWithProof);
+
+// GET /api/transfers/:id/proof - Download proof file (secure access)
+router.get('/:id/proof', hasPermission('transfers.view'), [
+  param('id').isUUID().withMessage('ID invalide'),
+  validate
+], transferController.downloadProof);
 
 // PATCH /api/transfers/:id/cancel - Cancel transfer
 router.patch('/:id/cancel', hasPermission('transfers.cancel'), [
@@ -66,5 +90,20 @@ router.patch('/:id/cancel', hasPermission('transfers.cancel'), [
   body('reason').optional().isString(),
   validate
 ], transferController.cancel);
+
+// DELETE /api/transfers/:id - Delete transfer (admin only)
+router.delete('/:id', [
+  param('id').isUUID().withMessage('ID invalide'),
+  validate
+], (req, res, next) => {
+  // Vérifier que l'utilisateur est admin
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({
+      success: false,
+      message: 'Seuls les administrateurs peuvent supprimer des transferts'
+    });
+  }
+  next();
+}, transferController.deleteTransfer);
 
 module.exports = router;

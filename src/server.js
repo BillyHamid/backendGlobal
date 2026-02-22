@@ -10,6 +10,7 @@ const userRoutes = require('./routes/user.routes');
 const transferRoutes = require('./routes/transfer.routes');
 const beneficiaryRoutes = require('./routes/beneficiary.routes');
 const senderRoutes = require('./routes/sender.routes');
+const cashRoutes = require('./routes/cash.routes');
 const statsRoutes = require('./routes/stats.routes');
 const notificationRoutes = require('./routes/notification.routes');
 
@@ -87,6 +88,7 @@ app.use('/api/beneficiaries', beneficiaryRoutes);
 app.use('/api/senders', senderRoutes);
 app.use('/api/stats', statsRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/cash', cashRoutes);
 
 // 404 handler
 app.use((req, res) => {

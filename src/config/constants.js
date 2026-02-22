@@ -10,7 +10,7 @@ const ROLES = {
 const TRANSFER_STATUS = {
   PENDING: 'pending',
   IN_PROGRESS: 'in_progress',
-  PAID: 'paid',
+  PAID: 'paid', // Payé (avec ou sans preuve)
   CANCELLED: 'cancelled'
 };
 

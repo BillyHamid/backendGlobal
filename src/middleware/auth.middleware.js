@@ -19,6 +19,9 @@ const authenticate = async (req, res, next) => {
     // Verify token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
+    // Debug: Log decoded token
+    console.log('Auth middleware - Decoded userId:', decoded.userId);
+
     // Get user from database
     const result = await query(
       'SELECT id, email, name, role, country, agent_code, is_active FROM users WHERE id = $1',
@@ -40,6 +43,9 @@ const authenticate = async (req, res, next) => {
         message: 'Compte désactivé. Contactez l\'administrateur.'
       });
     }
+
+    // Debug: Log authenticated user
+    console.log('Auth middleware - Authenticated user:', user.name, 'ID:', user.id, 'Email:', user.email);
 
     // Attach user to request
     req.user = {
@@ -94,7 +100,7 @@ const authorize = (...allowedRoles) => {
 const hasPermission = (permission) => {
   const rolePermissions = {
     admin: [
-      'transfers.create', 'transfers.view', 'transfers.edit', 'transfers.cancel', 'transfers.pay',
+      'transfers.create', 'transfers.view', 'transfers.edit', 'transfers.cancel', 'transfers.pay', 'transfers.delete',
       'users.create', 'users.view', 'users.edit', 'users.delete',
       'beneficiaries.create', 'beneficiaries.view', 'beneficiaries.edit',
       'senders.create', 'senders.view', 'senders.edit',
@@ -109,8 +115,9 @@ const hasPermission = (permission) => {
       'senders.view',
       'reports.view', 'reports.export'
     ],
+    // Tous les agents (USA et BF) peuvent créer des transferts ET marquer comme payé
     sender_agent: [
-      'transfers.create', 'transfers.view',
+      'transfers.create', 'transfers.view', 'transfers.pay',
       'beneficiaries.create', 'beneficiaries.view',
       'senders.create', 'senders.view'
     ],

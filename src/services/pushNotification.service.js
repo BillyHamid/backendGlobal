@@ -122,13 +122,17 @@ const sendToMany = async (subscriptions, payload) => {
   return { successful, failed, total: results.length };
 };
 
-// Send notification to all payer agents (when new transfer is created)
+// Send notification to all agents (when new transfer is created) - USA et BF peuvent recevoir et payer
 const notifyPayerAgents = async (transfer, beneficiaryCountry) => {
-  // Get all payer_agent subscriptions
-  const subscriptions = await getSubscriptionsByRole('payer_agent');
+  // Get all agent subscriptions (sender_agent + payer_agent)
+  const [senderSubs, payerSubs] = await Promise.all([
+    getSubscriptionsByRole('sender_agent'),
+    getSubscriptionsByRole('payer_agent')
+  ]);
+  const subscriptions = [...senderSubs, ...payerSubs];
   
   if (subscriptions.length === 0) {
-    console.log('No payer agent subscriptions found');
+    console.log('No agent subscriptions found');
     return { successful: 0, failed: 0, total: 0 };
   }
 

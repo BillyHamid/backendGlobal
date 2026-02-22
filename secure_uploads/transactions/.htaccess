@@ -1,0 +1,8 @@
+# Empêcher l'exécution de scripts
+<FilesMatch ".(php|php3|php4|php5|phtml|pl|py|jsp|asp|sh|cgi)$">
+  Deny from all
+</FilesMatch>
+
+# Empêcher l'accès direct aux fichiers
+# Les fichiers doivent être servis via l'API uniquement
+Options -Indexes
