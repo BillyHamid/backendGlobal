@@ -71,6 +71,16 @@ app.use(express.urlencoded({ extended: true }));
 // ROUTES
 // ===================
 
+// Racine : message d'accueil
+app.get('/', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Global Exchange API',
+    docs: '/api/health pour vérifier que l\'API est en ligne',
+    api: '/api'
+  });
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ 
