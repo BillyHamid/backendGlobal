@@ -7,8 +7,13 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "db:migrate": "node src/database/migrate.js",
+    "db:migrate:extra": "node src/database/migrate_extra.js",
+    "db:migrate:all": "npm run db:migrate && npm run db:migrate:extra",
     "db:seed": "node src/database/seed.js",
-    "db:reset": "node src/database/reset.js"
+    "db:reset": "node src/database/reset.js",
+    "db:reset:special-test": "node src/database/reset_special_test.js",
+    "db:migrate:financial-reports": "node src/database/migrate_008_financial_reports.js",
+    "db:migrate:financial-reports-xof": "node src/database/migrate_009_financial_reports_xof.js"
   },
   "keywords": [
     "money-transfer",

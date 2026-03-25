@@ -23,9 +23,9 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 -- Index for faster lookups
-CREATE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_users_role ON users(role);
-CREATE INDEX idx_users_agent_code ON users(agent_code);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+CREATE INDEX IF NOT EXISTS idx_users_agent_code ON users(agent_code);
 
 -- ============================================
 -- SENDERS TABLE (Expéditeurs)
@@ -45,8 +45,8 @@ CREATE TABLE IF NOT EXISTS senders (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_senders_phone ON senders(phone);
-CREATE INDEX idx_senders_name ON senders(last_name, first_name);
+CREATE INDEX IF NOT EXISTS idx_senders_phone ON senders(phone);
+CREATE INDEX IF NOT EXISTS idx_senders_name ON senders(last_name, first_name);
 
 -- ============================================
 -- BENEFICIARIES TABLE (Bénéficiaires)
@@ -66,8 +66,8 @@ CREATE TABLE IF NOT EXISTS beneficiaries (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_beneficiaries_phone ON beneficiaries(phone);
-CREATE INDEX idx_beneficiaries_name ON beneficiaries(last_name, first_name);
+CREATE INDEX IF NOT EXISTS idx_beneficiaries_phone ON beneficiaries(phone);
+CREATE INDEX IF NOT EXISTS idx_beneficiaries_name ON beneficiaries(last_name, first_name);
 
 -- ============================================
 -- TRANSFERS TABLE
@@ -112,11 +112,11 @@ CREATE TABLE IF NOT EXISTS transfers (
     cancellation_reason TEXT
 );
 
-CREATE INDEX idx_transfers_reference ON transfers(reference);
-CREATE INDEX idx_transfers_status ON transfers(status);
-CREATE INDEX idx_transfers_created_by ON transfers(created_by);
-CREATE INDEX idx_transfers_paid_by ON transfers(paid_by);
-CREATE INDEX idx_transfers_created_at ON transfers(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_transfers_reference ON transfers(reference);
+CREATE INDEX IF NOT EXISTS idx_transfers_status ON transfers(status);
+CREATE INDEX IF NOT EXISTS idx_transfers_created_by ON transfers(created_by);
+CREATE INDEX IF NOT EXISTS idx_transfers_paid_by ON transfers(paid_by);
+CREATE INDEX IF NOT EXISTS idx_transfers_created_at ON transfers(created_at DESC);
 
 -- ============================================
 -- EXCHANGE RATES TABLE
@@ -148,9 +148,9 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_audit_logs_user ON audit_logs(user_id);
-CREATE INDEX idx_audit_logs_entity ON audit_logs(entity_type, entity_id);
-CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_user ON audit_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at DESC);
 
 -- ============================================
 -- FUNCTION: Update updated_at timestamp
@@ -163,18 +163,23 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
--- Apply trigger to tables
+-- Apply trigger to tables (DROP IF EXISTS pour permettre de relancer schema.sql)
+DROP TRIGGER IF EXISTS update_users_updated_at ON users;
 CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_senders_updated_at ON senders;
 CREATE TRIGGER update_senders_updated_at BEFORE UPDATE ON senders
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_beneficiaries_updated_at ON beneficiaries;
 CREATE TRIGGER update_beneficiaries_updated_at BEFORE UPDATE ON beneficiaries
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_transfers_updated_at ON transfers;
 CREATE TRIGGER update_transfers_updated_at BEFORE UPDATE ON transfers
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_exchange_rates_updated_at ON exchange_rates;
 CREATE TRIGGER update_exchange_rates_updated_at BEFORE UPDATE ON exchange_rates
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();

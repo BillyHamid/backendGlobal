@@ -2,19 +2,18 @@ require('dotenv').config();
 const bcrypt = require('bcryptjs');
 const { pool } = require('../config/database');
 
+const PASS_ROOT = 'MonC0mpte#';
+
 async function seed() {
   console.log('🌱 Seeding database...');
   
   try {
-    // Hash password (same for all demo users)
-    const hashedPassword = await bcrypt.hash('password123', 10);
-    
-    // Insert users
-    const users = [
+    // Mot de passe démo : racine PASS_ROOT + suffixe (ex. MonC0mpte#admin)
+    const userDefs = [
       {
         email: 'admin@globalexchange.com',
-        password: hashedPassword,
-        name: 'Admin Système',
+        passSuffix: 'admin',
+        name: 'SANA Djibrill',
         phone: '+1 555 000 0001',
         role: 'admin',
         country: 'USA',
@@ -22,7 +21,7 @@ async function seed() {
       },
       {
         email: 'superviseur@globalexchange.com',
-        password: hashedPassword,
+        passSuffix: 'super',
         name: 'Jean Superviseur',
         phone: '+1 555 000 0002',
         role: 'supervisor',
@@ -31,7 +30,7 @@ async function seed() {
       },
       {
         email: 'razack@globalexchange.com',
-        password: hashedPassword,
+        passSuffix: 'razack',
         name: 'Zongo Razack',
         phone: '+1 555 123 4567',
         role: 'sender_agent',
@@ -40,7 +39,7 @@ async function seed() {
       },
       {
         email: 'bernadette@globalexchange.com',
-        password: hashedPassword,
+        passSuffix: 'bernadette',
         name: 'Bernadette Tassembedo',
         phone: '+226 70 00 00 01',
         role: 'payer_agent',
@@ -49,7 +48,7 @@ async function seed() {
       },
       {
         email: 'abibata@globalexchange.com',
-        password: hashedPassword,
+        passSuffix: 'abibata',
         name: 'Abibata Zougrana',
         phone: '+226 70 00 00 02',
         role: 'payer_agent',
@@ -58,30 +57,51 @@ async function seed() {
       },
       {
         email: 'mohamadi@globalexchange.com',
-        password: hashedPassword,
+        passSuffix: 'mohamadi',
         name: 'Mohamadi Sana',
         phone: '+226 70 00 00 03',
         role: 'payer_agent',
         country: 'Burkina Faso',
         agent_code: 'BF-003'
+      },
+      {
+        email: 'adjara@globalexchange.com',
+        passSuffix: 'adjara',
+        name: 'Adjara',
+        phone: '+1 555 000 0010',
+        role: 'sender_agent',
+        country: 'USA',
+        agent_code: 'USA-002'
       }
     ];
 
-    for (const user of users) {
+    for (const u of userDefs) {
+      const plainPassword = `${PASS_ROOT}${u.passSuffix}`;
+      const hashedPassword = await bcrypt.hash(plainPassword, 10);
       await pool.query(
         `INSERT INTO users (email, password, name, phone, role, country, agent_code)
          VALUES ($1, $2, $3, $4, $5, $6, $7)
-         ON CONFLICT (email) DO NOTHING`,
-        [user.email, user.password, user.name, user.phone, user.role, user.country, user.agent_code]
+         ON CONFLICT (email) DO UPDATE SET
+           password = EXCLUDED.password,
+           name = EXCLUDED.name,
+           phone = EXCLUDED.phone,
+           role = EXCLUDED.role,
+           country = EXCLUDED.country,
+           agent_code = EXCLUDED.agent_code`,
+        [u.email, hashedPassword, u.name, u.phone, u.role, u.country, u.agent_code]
       );
     }
+    // S'assurer que l'admin a le bon nom (même si déjà inséré)
+    await pool.query(
+      `UPDATE users SET name = 'SANA Djibrill' WHERE email = 'admin@globalexchange.com'`
+    );
     console.log('✅ Users seeded');
 
     // Insert exchange rates
     const rates = [
       { from: 'USD', to: 'XOF', rate: 615 },
       { from: 'EUR', to: 'XOF', rate: 655.957 },
-      { from: 'CAD', to: 'XOF', rate: 450 },
+      { from: 'CAD', to: 'XOF', rate: 450 }, 
       { from: 'GBP', to: 'XOF', rate: 780 }
     ];
 
@@ -98,14 +118,14 @@ async function seed() {
     console.log('');
     console.log('🎉 Database seeding completed!');
     console.log('');
-    console.log('Demo accounts created:');
-    console.log('  📧 admin@globalexchange.com (Admin)');
-    console.log('  📧 razack@globalexchange.com (Agent USA)');
-    console.log('  📧 bernadette@globalexchange.com (Agent BF)');
-    console.log('  📧 abibata@globalexchange.com (Agent BF)');
-    console.log('  📧 mohamadi@globalexchange.com (Agent BF)');
-    console.log('');
-    console.log('Password for all accounts: password123');
+    console.log('Demo accounts (mot de passe = MonC0mpte# + suffixe) :');
+    console.log('  📧 admin@globalexchange.com        → MonC0mpte#admin');
+    console.log('  📧 superviseur@globalexchange.com → MonC0mpte#super');
+    console.log('  📧 razack@globalexchange.com      → MonC0mpte#razack');
+    console.log('  📧 bernadette@globalexchange.com → MonC0mpte#bernadette');
+    console.log('  📧 abibata@globalexchange.com     → MonC0mpte#abibata');
+    console.log('  📧 mohamadi@globalexchange.com   → MonC0mpte#mohamadi');
+    console.log('  📧 adjara@globalexchange.com     → MonC0mpte#adjara');
     console.log('');
 
   } catch (error) {

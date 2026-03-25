@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const { ApiError } = require('./error.middleware');
+const uploadPaths = require('../config/uploadPaths');
 
 // Allowed MIME types (vérification stricte)
 const ALLOWED_MIME_TYPES = {
@@ -14,15 +15,8 @@ const ALLOWED_MIME_TYPES = {
 // Taille maximale : 5 MB
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB en bytes
 
-// Créer le dossier d'upload sécurisé s'il n'existe pas
-const uploadDir = path.join(__dirname, '../../secure_uploads/transactions');
-const cashEntryUploadDir = path.join(__dirname, '../../secure_uploads/cash_entries');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-if (!fs.existsSync(cashEntryUploadDir)) {
-  fs.mkdirSync(cashEntryUploadDir, { recursive: true });
-}
+const uploadDir = uploadPaths.transactions;
+const cashEntryUploadDir = uploadPaths.cash_entries;
 
 // Configuration du stockage (transactions)
 const storage = multer.diskStorage({

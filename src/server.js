@@ -1,4 +1,10 @@
 require('dotenv').config();
+
+if (!process.env.JWT_SECRET) {
+  console.error('❌ JWT_SECRET manquant dans .env. Tous les tokens seront invalides.');
+  process.exit(1);
+}
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -13,6 +19,9 @@ const senderRoutes = require('./routes/sender.routes');
 const cashRoutes = require('./routes/cash.routes');
 const statsRoutes = require('./routes/stats.routes');
 const notificationRoutes = require('./routes/notification.routes');
+const exchangeRateRoutes = require('./routes/exchangeRate.routes');
+const specialExpensesRoutes = require('./routes/specialExpenses.routes');
+const financialReportsRoutes = require('./routes/financialReports.routes');
 
 // Import middleware
 const { errorHandler } = require('./middleware/error.middleware');
@@ -27,35 +36,21 @@ const PORT = process.env.PORT || 5000;
 // MIDDLEWARE
 // ===================
 
-// Security headers
-app.use(helmet());
+// Security headers (désactiver certaines restrictions pour CORS)
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 
 // CORS configuration
-const allowedOrigins = [
-  'http://localhost:5173',
-  'http://localhost:5174',
-  'http://localhost:5175',
-  'http://127.0.0.1:5173',
-  'https://global-ex-woad.vercel.app',
-  process.env.FRONTEND_URL
-].filter(Boolean);
+const { isAllowedCorsOrigin } = require('./config/corsConfig');
 
 app.use(cors({
   origin: function(origin, callback) {
-    // Allow requests with no origin (mobile apps, curl, etc.)
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-    // In development, allow all localhost origins
-    if (process.env.NODE_ENV === 'development' && origin.includes('localhost')) {
-      return callback(null, true);
-    }
-    return callback(new Error('Not allowed by CORS'));
+    if (isAllowedCorsOrigin(origin)) return callback(null, true);
+    callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning'],
+  exposedHeaders: ['Content-Disposition']
 }));
 
 // Request logging
@@ -71,24 +66,35 @@ app.use(express.urlencoded({ extended: true }));
 // ROUTES
 // ===================
 
-// Racine : message d'accueil
+// Vérification Ngrok
 app.get('/', (req, res) => {
-  res.json({
-    success: true,
-    message: 'Global Exchange API',
-    docs: '/api/health pour vérifier que l\'API est en ligne',
-    api: '/api'
-  });
+  res.send('Le serveur backend est bien en ligne et relié à Ngrok !');
 });
 
-// Health check
+// Health check (inclut l’état du schéma si la vérif au démarrage a tourné)
 app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'OK', 
+  const { getLastSchemaCheck } = require('./database/verifySchema');
+  const schema = getLastSchemaCheck();
+  const strict = process.env.STRICT_HEALTH_SCHEMA === '1';
+  if (strict && schema && !schema.ok) {
+    return res.status(503).json({
+      status: 'DEGRADED',
+      message: 'Schéma base de données incomplet — exécutez npm run db:migrate:extra',
+      timestamp: new Date().toISOString(),
+      environment: process.env.NODE_ENV,
+      databaseSchema: { ok: false, issues: schema.issues },
+    });
+  }
+  const payload = {
+    status: 'OK',
     message: 'Global Exchange API is running',
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV
-  });
+    environment: process.env.NODE_ENV,
+  };
+  if (schema) {
+    payload.databaseSchema = { ok: schema.ok, issues: schema.issues };
+  }
+  res.json(payload);
 });
 
 // API Routes
@@ -100,6 +106,9 @@ app.use('/api/senders', senderRoutes);
 app.use('/api/stats', statsRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/cash', cashRoutes);
+app.use('/api/exchange-rates', exchangeRateRoutes);
+app.use('/api/special-expenses', specialExpensesRoutes);
+app.use('/api/financial-reports', financialReportsRoutes);
 
 // 404 handler
 app.use((req, res) => {
@@ -119,18 +128,48 @@ app.use(errorHandler);
 // En production (ex. Render), écouter sur 0.0.0.0 pour accepter les requêtes externes
 const host = process.env.NODE_ENV === 'production' ? '0.0.0.0' : undefined;
 
-app.listen(PORT, host, () => {
-  // Initialize push notifications
-  initializePush();
+async function start() {
+  const { pool } = require('./config/database');
 
-  const apiUrl = process.env.RENDER_EXTERNAL_URL
-    ? `${process.env.RENDER_EXTERNAL_URL}/api`
-    : `http://localhost:${PORT}/api`;
+  if (process.env.RUN_MIGRATIONS_ON_START === '1') {
+    try {
+      const { applyExtraMigrations } = require('./database/migrate_extra');
+      await applyExtraMigrations(pool);
+    } catch (e) {
+      console.error('❌ RUN_MIGRATIONS_ON_START : échec des migrations :', e.message);
+      process.exit(1);
+    }
+  }
 
-  console.log('\n🌍 GLOBAL EXCHANGE API');
-  console.log('   Port:', PORT, '| Env:', process.env.NODE_ENV || 'development');
-  console.log('   API:', apiUrl, '\n');
-});
+  if (process.env.SKIP_SCHEMA_VERIFY !== '1') {
+    try {
+      const { runSchemaVerification } = require('./database/verifySchema');
+      const check = await runSchemaVerification(pool);
+      if (!check.ok) {
+        console.error('\n⚠️  SCHÉMA BASE DE DONNÉES INCOMPLET');
+        check.issues.forEach((issue) => console.error('   -', issue));
+        console.error('   → Base déjà en service : npm run db:migrate:extra');
+        console.error('   → Nouvelle base vide    : npm run db:migrate:all\n');
+      }
+    } catch (e) {
+      console.error('⚠️  Vérification schéma impossible (base injoignable ?):', e.message);
+    }
+  }
+
+  app.listen(PORT, host, () => {
+    initializePush();
+
+    const apiUrl = process.env.RENDER_EXTERNAL_URL
+      ? `${process.env.RENDER_EXTERNAL_URL}/api`
+      : `http://localhost:${PORT}/api`;
+
+    console.log('\n🌍 GLOBAL EXCHANGE API');
+    console.log('   Port:', PORT, '| Env:', process.env.NODE_ENV || 'development');
+    console.log('   API:', apiUrl, '\n');
+  });
+}
+
+start();
 
 module.exports = app;
 

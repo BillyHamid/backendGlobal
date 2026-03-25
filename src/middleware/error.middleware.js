@@ -1,6 +1,16 @@
+const logger = require('../utils/logger');
+const { applyCorsHeadersToErrorResponse } = require('../config/corsConfig');
+
+const addCorsToError = (req, res) => applyCorsHeadersToErrorResponse(req, res);
+
 // Global error handler middleware
 const errorHandler = (err, req, res, next) => {
-  console.error('Error:', err);
+  addCorsToError(req, res);
+  logger.error(err.message || 'Internal error', {
+    statusCode: err.statusCode || 500,
+    path: req?.path,
+    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+  });
 
   // Default error
   let statusCode = err.statusCode || 500;

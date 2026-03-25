@@ -4,6 +4,7 @@ const transferController = require('../controllers/transfer.controller');
 const { validate } = require('../middleware/validate.middleware');
 const { authenticate, hasPermission } = require('../middleware/auth.middleware');
 const { uploadProof, validateProofUpload } = require('../middleware/upload.middleware');
+const { VALID_SEND_METHODS } = require('../config/constants');
 
 const router = express.Router();
 
@@ -37,7 +38,7 @@ router.post('/', hasPermission('transfers.create'), [
   body('sender.lastName').notEmpty().withMessage('Nom expéditeur requis'),
   body('sender.phone').notEmpty().withMessage('Téléphone expéditeur requis'),
   body('sender.country').notEmpty().withMessage('Pays expéditeur requis'),
-  body('sendMethod').isIn(['cash', 'zelle', 'orange_money', 'wave', 'bank_transfer']).withMessage('Méthode de paiement invalide'),
+  body('sendMethod').isIn(VALID_SEND_METHODS).withMessage('Méthode de paiement invalide'),
   
   // Beneficiary validation
   body('beneficiary.firstName').notEmpty().withMessage('Prénom bénéficiaire requis'),

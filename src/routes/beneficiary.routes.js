@@ -14,7 +14,7 @@ router.get('/', hasPermission('beneficiaries.view'), [
   query('search').optional().isString(),
   query('country').optional().isString(),
   query('page').optional().isInt({ min: 1 }),
-  query('limit').optional().isInt({ min: 1, max: 100 }),
+  query('limit').optional().isInt({ min: 1, max: 500 }),
   validate
 ], beneficiaryController.getAll);
 

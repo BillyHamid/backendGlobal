@@ -1,7 +1,7 @@
 const { Pool } = require('pg');
 
 // Support DATABASE_URL (ex. Render, Neon) ou variables séparées DB_*
-const poolConfig = process.env.DATABASE_URL
+const baseConfig = process.env.DATABASE_URL
   ? { connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } }
   : {
       host: process.env.DB_HOST || 'localhost',
@@ -11,15 +11,23 @@ const poolConfig = process.env.DATABASE_URL
       password: process.env.DB_PASSWORD || 'postgres',
     };
 
+const poolConfig = {
+  ...baseConfig,
+  max: parseInt(process.env.DB_POOL_MAX, 10) || 20,
+  min: parseInt(process.env.DB_POOL_MIN, 10) || 2,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 10000,
+};
+
 const pool = new Pool(poolConfig);
 
-// Test connection
 pool.on('connect', () => {
-  console.log('📦 Connected to PostgreSQL database');
+  pool.removeAllListeners('connect');
+  console.log('📦 PostgreSQL connection pool ready');
 });
 
 pool.on('error', (err) => {
-  console.error('❌ PostgreSQL connection error:', err);
+  console.error('❌ PostgreSQL pool error:', err);
 });
 
 // Helper function for queries

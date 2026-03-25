@@ -14,14 +14,18 @@ const TRANSFER_STATUS = {
   CANCELLED: 'cancelled'
 };
 
-// Payment methods
+// Payment methods (valeurs stockées en send_method)
 const PAYMENT_METHODS = {
   CASH: 'cash',
   ZELLE: 'zelle',
   ORANGE_MONEY: 'orange_money',
   WAVE: 'wave',
-  BANK_TRANSFER: 'bank_transfer'
+  BANK_TRANSFER: 'bank_transfer',
+  APPEL: 'appel',
 };
+
+/** Liste pour validation API création de transfert */
+const VALID_SEND_METHODS = Object.values(PAYMENT_METHODS);
 
 // Countries configuration - Only USA and Burkina Faso
 const COUNTRIES = {
@@ -55,6 +59,7 @@ module.exports = {
   ROLES,
   TRANSFER_STATUS,
   PAYMENT_METHODS,
+  VALID_SEND_METHODS,
   COUNTRIES,
   EXCHANGE_RATES,
   FEE_TIERS

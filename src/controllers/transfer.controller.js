@@ -7,6 +7,7 @@ const { sendTransferPaidToSender } = require('../services/whatsapp.service');
 const { getSecureRelativePath } = require('../services/fileSecurity.service');
 const { logConfirmation, logProofDownload, logAction } = require('../services/audit.service');
 const { createLedgerEntry } = require('../services/ledger.service');
+const { fetchUsdToXofRate } = require('../services/exchangeRate.service');
 
 // Generate unique reference
 const generateReference = () => {
@@ -321,32 +322,41 @@ const getByReference = asyncHandler(async (req, res) => {
 // @desc    Create new transfer
 // @route   POST /api/transfers
 const create = asyncHandler(async (req, res) => {
-  const { sender, beneficiary, amountSent, currency, exchangeRate, sendMethod, notes, fees: customFees, currencyReceived } = req.body;
+  const { sender, beneficiary, amountSent, currency, exchangeRate, sendMethod, notes, fees: customFees, feeCurrency, currencyReceived } = req.body;
   const user = req.user;
   
-  // Debug: Log user info to verify correct user
   console.log('Creating transfer - User ID:', user.id, 'User Name:', user.name, 'User Email:', user.email);
 
-  // Calculate fees and amount received
-  const calculatedFees = calculateFees(amountSent, currency);
-  
-  // Allow custom fees but ensure they don't exceed calculated fees (can only reduce)
-  let fees = calculatedFees;
-  if (customFees !== undefined && customFees !== null) {
-    if (customFees < 0) {
-      throw new ApiError(400, 'Les frais ne peuvent pas être négatifs');
-    }
-    if (customFees > calculatedFees) {
-      throw new ApiError(400, `Les frais ne peuvent pas dépasser ${calculatedFees} ${currency}`);
-    }
-    fees = customFees;
-  }
-  
-  // Calculer le montant reçu selon la direction du transfert
-  // USA → BF : multiplier (USD * taux = XOF)
-  // BF → USA : diviser (XOF / taux = USD)
   const isUSAtoBF = sender.country === 'USA' && beneficiary.country === 'BFA';
   const isBFtoUSA = sender.country === 'BFA' && beneficiary.country === 'USA';
+
+  // Taux réel du marché (API), stocké pour traçabilité
+  const rateReel = await fetchUsdToXofRate();
+
+  // BF → USA : frais = (montant / taux_reel) - (montant / taux_paiement) → USD
+  // USA → BF : grille fixe en USD
+  let fees;
+  if (isBFtoUSA) {
+    const ratePaiement = exchangeRate;
+    const calculatedFees = ratePaiement > rateReel
+      ? Math.round(((amountSent / rateReel) - (amountSent / ratePaiement)) * 100) / 100
+      : 0;
+    fees = (customFees !== undefined && customFees !== null && customFees >= 0)
+      ? Math.min(customFees, calculatedFees)
+      : calculatedFees;
+  } else {
+    const calculatedFees = calculateFees(amountSent, currency);
+    fees = calculatedFees;
+    if (customFees !== undefined && customFees !== null) {
+      if (customFees < 0) {
+        throw new ApiError(400, 'Les frais ne peuvent pas être négatifs');
+      }
+      if (customFees > calculatedFees) {
+        throw new ApiError(400, `Les frais ne peuvent pas dépasser ${calculatedFees} ${currency}`);
+      }
+      fees = customFees;
+    }
+  }
   
   let amountReceived;
   let finalCurrencyReceived;
@@ -410,14 +420,14 @@ const create = asyncHandler(async (req, res) => {
     `INSERT INTO transfers (
       reference, sender_id, sender_country, send_method,
       beneficiary_id, beneficiary_country, beneficiary_city,
-      amount_sent, currency_sent, exchange_rate, fees, amount_received, currency_received,
+      amount_sent, currency_sent, exchange_rate, rate_reel, fees, amount_received, currency_received,
       status, created_by, notes
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
     RETURNING *`,
     [
       reference, senderId, sender.country, sendMethod,
       beneficiaryId, beneficiary.country, beneficiary.city,
-      amountSent, currency, exchangeRate, fees, amountReceived, finalCurrencyReceived,
+      amountSent, currency, exchangeRate, rateReel, fees, amountReceived, finalCurrencyReceived,
       'pending', user.id, notes || null
     ]
   );
@@ -811,13 +821,19 @@ const downloadProof = asyncHandler(async (req, res) => {
       '.pdf': 'application/pdf'
     };
     const contentType = mimeTypes[ext] || 'application/octet-stream';
-    
+    const stat = fs.statSync(filePath);
+    const fileSize = stat.size;
+
+    const safeFilename = filename.replace(/[^\w.-]/g, '_');
+
     res.setHeader('Content-Type', contentType);
-    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    res.setHeader('Content-Length', fileSize);
+    res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}"`);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'private, no-cache, no-store, must-revalidate');
-    
-    const fileStream = fs.createReadStream(filePath);
+    res.setHeader('Accept-Ranges', 'bytes');
+
+    const fileStream = fs.createReadStream(filePath, { flags: 'r' });
     fileStream.on('error', () => {
       throw new ApiError(500, 'Erreur lors de la lecture du fichier');
     });

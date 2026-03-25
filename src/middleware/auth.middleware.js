@@ -1,12 +1,10 @@
 const jwt = require('jsonwebtoken');
-const { query } = require('../config/database');
 
-// Verify JWT token
+// Verify JWT token - utilise les claims du JWT (pas de SELECT à chaque requête)
 const authenticate = async (req, res, next) => {
   try {
-    // Get token from header
     const authHeader = req.headers.authorization;
-    
+
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({
         success: false,
@@ -15,14 +13,29 @@ const authenticate = async (req, res, next) => {
     }
 
     const token = authHeader.split(' ')[1];
-
-    // Verify token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // Debug: Log decoded token
-    console.log('Auth middleware - Decoded userId:', decoded.userId);
+    // JWT avec claims complets (login/register récents) : pas de DB
+    if (decoded.role !== undefined && decoded.email !== undefined) {
+      if (decoded.isActive === false) {
+        return res.status(401).json({
+          success: false,
+          message: 'Compte désactivé. Contactez l\'administrateur.'
+        });
+      }
+      req.user = {
+        id: decoded.userId,
+        email: decoded.email,
+        name: decoded.name,
+        role: decoded.role,
+        country: decoded.country ?? null,
+        agentCode: decoded.agentCode ?? null
+      };
+      return next();
+    }
 
-    // Get user from database
+    // JWT legacy (userId seul) : fallback DB pour rétrocompatibilité
+    const { query } = require('../config/database');
     const result = await query(
       'SELECT id, email, name, role, country, agent_code, is_active FROM users WHERE id = $1',
       [decoded.userId]
@@ -36,7 +49,6 @@ const authenticate = async (req, res, next) => {
     }
 
     const user = result.rows[0];
-
     if (!user.is_active) {
       return res.status(401).json({
         success: false,
@@ -44,10 +56,6 @@ const authenticate = async (req, res, next) => {
       });
     }
 
-    // Debug: Log authenticated user
-    console.log('Auth middleware - Authenticated user:', user.name, 'ID:', user.id, 'Email:', user.email);
-
-    // Attach user to request
     req.user = {
       id: user.id,
       email: user.email,

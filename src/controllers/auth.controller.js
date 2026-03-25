@@ -3,10 +3,19 @@ const jwt = require('jsonwebtoken');
 const { query } = require('../config/database');
 const { asyncHandler, ApiError } = require('../middleware/error.middleware');
 
-// Generate JWT token
-const generateToken = (userId) => {
+// Generate JWT token with essential claims (évite SELECT user à chaque requête)
+const generateToken = (user) => {
+  const payload = {
+    userId: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    country: user.country ?? null,
+    agentCode: user.agent_code ?? null,
+    isActive: user.is_active,
+  };
   return jwt.sign(
-    { userId },
+    payload,
     process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
   );
@@ -40,8 +49,8 @@ const login = asyncHandler(async (req, res) => {
     throw new ApiError(401, 'Email ou mot de passe incorrect');
   }
 
-  // Generate token
-  const token = generateToken(user.id);
+  // Generate token with claims
+  const token = generateToken(user);
 
   // Return user data (without password)
   res.json({
@@ -67,6 +76,13 @@ const login = asyncHandler(async (req, res) => {
 // @desc    Register new user
 // @route   POST /api/auth/register
 const register = asyncHandler(async (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    throw new ApiError(
+      403,
+      'Inscription publique désactivée. Les comptes sont créés par un administrateur (interface utilisateurs).'
+    );
+  }
+
   const { email, password, name, phone, role, country, agentCode } = req.body;
 
   // Check if email already exists
@@ -87,7 +103,7 @@ const register = asyncHandler(async (req, res) => {
   );
 
   const user = result.rows[0];
-  const token = generateToken(user.id);
+  const token = generateToken(user);
 
   res.status(201).json({
     success: true,

@@ -13,7 +13,7 @@ router.post('/login', [
   validate
 ], authController.login);
 
-// POST /api/auth/register (admin only in production)
+// POST /api/auth/register — autorisé hors prod uniquement (en prod : création via POST /api/users par un admin)
 router.post('/register', [
   body('email').isEmail().withMessage('Email invalide'),
   body('password').isLength({ min: 6 }).withMessage('Mot de passe: 6 caractères minimum'),

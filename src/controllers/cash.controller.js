@@ -74,6 +74,13 @@ const getCashDashboard = asyncHandler(async (req, res) => {
   const bfaToUsaAmountSentXOF = parseFloat(totals.bfa_to_usa_amount_sent_xof);
   const bfaToUsaAmountReceivedUSD = parseFloat(totals.bfa_to_usa_amount_received_usd);
   
+  // Total des dépenses spéciales déjà effectuées sur TFEES
+  const specialExpensesResult = await query(
+    `SELECT COALESCE(SUM(amount), 0) as total_spent FROM special_expenses WHERE type = 'simple_expense'`
+  );
+  const totalSpecialExpenses = parseFloat(specialExpensesResult.rows[0].total_spent);
+  const tfeesNetUSD = tfeesUSD - totalSpecialExpenses;
+
   // Bénéfice total = frais USA→BF (Tmount) uniquement pour le partage partenaire
   const totalProfitUSD = tfeesUSD;
   const partnerShareUSD = totalProfitUSD / 2;
@@ -101,6 +108,8 @@ const getCashDashboard = asyncHandler(async (req, res) => {
       totals: {
         tmountUSD: tmountUSD,
         tfeesUSD: tfeesUSD,
+        tfeesNetUSD: tfeesNetUSD,
+        totalSpecialExpenses: totalSpecialExpenses,
         tmountXOF: tmountXOF,
         tfeesXOF: tfeesXOFBfUsa,
         totalPaidTransfers: parseInt(totals.total_paid_transfers),
@@ -345,13 +354,19 @@ const downloadEntryProof = asyncHandler(async (req, res) => {
     '.pdf': 'application/pdf'
   };
   const contentType = mimeTypes[ext] || 'application/octet-stream';
+  const stat = fs.statSync(filePath);
+  const fileSize = stat.size;
+
+  const safeFilename = filename.replace(/[^\w.-]/g, '_');
 
   res.setHeader('Content-Type', contentType);
-  res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+  res.setHeader('Content-Length', fileSize);
+  res.setHeader('Content-Disposition', `inline; filename="${safeFilename}"`);
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Cache-Control', 'private, no-cache, no-store, must-revalidate');
+  res.setHeader('Accept-Ranges', 'bytes');
 
-  const fileStream = fs.createReadStream(filePath);
+  const fileStream = fs.createReadStream(filePath, { flags: 'r' });
   fileStream.on('error', () => {
     throw new ApiError(500, 'Erreur lors de la lecture du fichier');
   });
