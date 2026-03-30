@@ -9,7 +9,7 @@ const root = process.env.SECURE_UPLOADS_ROOT
   ? path.resolve(process.env.SECURE_UPLOADS_ROOT)
   : path.join(__dirname, '../../secure_uploads');
 
-const subdirs = ['transactions', 'cash_entries', 'financial_reports', 'special_expenses'];
+const subdirs = ['transactions', 'cash_entries', 'financial_reports', 'special_expenses', 'beneficiary_ids'];
 
 if (!fs.existsSync(root)) {
   fs.mkdirSync(root, { recursive: true });
@@ -27,4 +27,5 @@ module.exports = {
   cash_entries: path.join(root, 'cash_entries'),
   financial_reports: path.join(root, 'financial_reports'),
   special_expenses: path.join(root, 'special_expenses'),
+  beneficiary_ids: path.join(root, 'beneficiary_ids'),
 };

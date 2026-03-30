@@ -2,11 +2,14 @@
 -- GLOBAL EXCHANGE - Database Schema
 -- ============================================
 
+-- Enable UUID extension
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
 -- ============================================
 -- USERS TABLE
 -- ============================================
 CREATE TABLE IF NOT EXISTS users (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     email VARCHAR(255) UNIQUE NOT NULL,
     password VARCHAR(255) NOT NULL,
     name VARCHAR(255) NOT NULL,
@@ -28,7 +31,7 @@ CREATE INDEX IF NOT EXISTS idx_users_agent_code ON users(agent_code);
 -- SENDERS TABLE (Expéditeurs)
 -- ============================================
 CREATE TABLE IF NOT EXISTS senders (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     first_name VARCHAR(100) NOT NULL,
     last_name VARCHAR(100) NOT NULL,
     phone VARCHAR(50) NOT NULL,
@@ -49,7 +52,7 @@ CREATE INDEX idx_senders_name ON senders(last_name, first_name);
 -- BENEFICIARIES TABLE (Bénéficiaires)
 -- ============================================
 CREATE TABLE IF NOT EXISTS beneficiaries (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     first_name VARCHAR(100) NOT NULL,
     last_name VARCHAR(100) NOT NULL,
     phone VARCHAR(50) NOT NULL,
@@ -70,7 +73,7 @@ CREATE INDEX idx_beneficiaries_name ON beneficiaries(last_name, first_name);
 -- TRANSFERS TABLE
 -- ============================================
 CREATE TABLE IF NOT EXISTS transfers (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     reference VARCHAR(20) UNIQUE NOT NULL,
     
     -- Sender info
@@ -119,7 +122,7 @@ CREATE INDEX idx_transfers_created_at ON transfers(created_at DESC);
 -- EXCHANGE RATES TABLE
 -- ============================================
 CREATE TABLE IF NOT EXISTS exchange_rates (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     from_currency VARCHAR(10) NOT NULL,
     to_currency VARCHAR(10) NOT NULL,
     rate DECIMAL(15, 4) NOT NULL,
@@ -133,7 +136,7 @@ CREATE TABLE IF NOT EXISTS exchange_rates (
 -- AUDIT LOG TABLE
 -- ============================================
 CREATE TABLE IF NOT EXISTS audit_logs (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID REFERENCES users(id),
     action VARCHAR(100) NOT NULL,
     entity_type VARCHAR(50) NOT NULL,

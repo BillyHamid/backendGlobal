@@ -4,6 +4,7 @@ const transferController = require('../controllers/transfer.controller');
 const { validate } = require('../middleware/validate.middleware');
 const { authenticate, hasPermission } = require('../middleware/auth.middleware');
 const { uploadProof, validateProofUpload } = require('../middleware/upload.middleware');
+const { maybeMultipartTransferCreate } = require('../middleware/transferCreateBody.middleware');
 const { VALID_SEND_METHODS } = require('../config/constants');
 
 const router = express.Router();
@@ -22,6 +23,12 @@ router.get('/', hasPermission('transfers.view'), [
 // GET /api/transfers/pending - Get pending transfers (for payer agents)
 router.get('/pending', hasPermission('transfers.view'), transferController.getPending);
 
+// GET /api/transfers/:id/beneficiary-id-proof - Pièce d'identité bénéficiaire (création transfert)
+router.get('/:id/beneficiary-id-proof', hasPermission('transfers.view'), [
+  param('id').isUUID().withMessage('ID invalide'),
+  validate
+], transferController.downloadBeneficiaryIdProof);
+
 // GET /api/transfers/:id - Get transfer by ID
 router.get('/:id', hasPermission('transfers.view'), [
   param('id').isUUID().withMessage('ID invalide'),
@@ -31,8 +38,8 @@ router.get('/:id', hasPermission('transfers.view'), [
 // GET /api/transfers/reference/:ref - Get transfer by reference
 router.get('/reference/:ref', hasPermission('transfers.view'), transferController.getByReference);
 
-// POST /api/transfers - Create new transfer
-router.post('/', hasPermission('transfers.create'), [
+// POST /api/transfers - Create new transfer (JSON ou multipart: payload + beneficiary_id_proof optionnel)
+router.post('/', hasPermission('transfers.create'), maybeMultipartTransferCreate, [
   // Sender validation
   body('sender.firstName').notEmpty().withMessage('Prénom expéditeur requis'),
   body('sender.lastName').notEmpty().withMessage('Nom expéditeur requis'),

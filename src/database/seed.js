@@ -118,14 +118,15 @@ async function seed() {
     console.log('');
     console.log('🎉 Database seeding completed!');
     console.log('');
-    console.log('Demo accounts (mot de passe = MonC0mpte# + suffixe) :');
-    console.log('  📧 admin@globalexchange.com        → MonC0mpte#admin');
-    console.log('  📧 superviseur@globalexchange.com → MonC0mpte#super');
-    console.log('  📧 razack@globalexchange.com      → MonC0mpte#razack');
-    console.log('  📧 bernadette@globalexchange.com → MonC0mpte#bernadette');
-    console.log('  📧 abibata@globalexchange.com     → MonC0mpte#abibata');
-    console.log('  📧 mohamadi@globalexchange.com   → MonC0mpte#mohamadi');
-    console.log('  📧 adjara@globalexchange.com     → MonC0mpte#adjara');
+    console.log('Demo accounts created:');
+    console.log('  📧 admin@globalexchange.com (Admin)');
+    console.log('  📧 razack@globalexchange.com (Agent USA)');
+    console.log('  📧 bernadette@globalexchange.com (Agent BF)');
+    console.log('  📧 abibata@globalexchange.com (Agent BF)');
+    console.log('  📧 mohamadi@globalexchange.com (Agent BF)');
+  console.log('  📧 adjara@globalexchange.com (Agent USA)');
+    console.log('');
+    console.log('Password for all accounts: password123');
     console.log('');
 
   } catch (error) {

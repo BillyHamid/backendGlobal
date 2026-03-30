@@ -1,5 +1,5 @@
 /**
- * Applique les migrations numérotées 002→009 dans l'ordre.
+ * Applique les migrations numérotées 002→010 dans l'ordre.
  * Bases déjà initialisées : npm run db:migrate:extra
  * Nouvelle base vide : npm run db:migrate:all (schéma + ce fichier).
  * Option prod : RUN_MIGRATIONS_ON_START=1 dans server.js.
@@ -16,10 +16,11 @@ const MIGRATIONS = [
   '007_add_rate_reel.sql',
   '008_financial_reports.sql',
   '009_financial_reports_xof.sql',
+  '010_beneficiary_id_proof.sql',
 ];
 
 async function applyExtraMigrations(pool) {
-  console.log('📦 Applying extra migrations (002–009)...');
+  console.log('📦 Applying extra migrations (002–010)...');
   for (const file of MIGRATIONS) {
     const filePath = path.join(__dirname, 'migrations', file);
     if (!fs.existsSync(filePath)) {

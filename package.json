@@ -10,6 +10,7 @@
     "db:migrate:extra": "node src/database/migrate_extra.js",
     "db:migrate:all": "npm run db:migrate && npm run db:migrate:extra",
     "db:seed": "node src/database/seed.js",
+    "db:sync-demo-passwords": "node src/database/sync_demo_passwords.js",
     "db:reset": "node src/database/reset.js",
     "db:reset:special-test": "node src/database/reset_special_test.js",
     "db:migrate:financial-reports": "node src/database/migrate_008_financial_reports.js",

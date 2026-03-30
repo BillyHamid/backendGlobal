@@ -238,6 +238,7 @@ const getById = asyncHandler(async (req, res) => {
       s.phone as sender_phone, s.email as sender_email,
       b.first_name as beneficiary_first_name, b.last_name as beneficiary_last_name, 
       b.phone as beneficiary_phone, b.id_type as beneficiary_id_type, b.id_number as beneficiary_id_number,
+      b.id_proof_filename as beneficiary_id_proof_filename,
       creator.name as created_by_name,
       creator.country as created_by_country,
       payer.name as paid_by_name
@@ -277,7 +278,8 @@ const getById = asyncHandler(async (req, res) => {
         country: t.beneficiary_country,
         city: t.beneficiary_city,
         idType: t.beneficiary_id_type,
-        idNumber: t.beneficiary_id_number
+        idNumber: t.beneficiary_id_number,
+        hasIdProof: Boolean(t.beneficiary_id_proof_filename),
       },
       amountSent: parseFloat(t.amount_sent),
       currencySent: t.currency_sent,
@@ -495,6 +497,15 @@ const create = asyncHandler(async (req, res) => {
   } catch (notifError) {
     console.error('Push notification error:', notifError);
     // Don't fail the transfer creation if notification fails
+  }
+
+  if (req.file) {
+    const pathMod = require('path');
+    const fn = pathMod.basename(req.file.filename);
+    await query(
+      `UPDATE beneficiaries SET id_proof_filename = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+      [fn, beneficiaryId]
+    );
   }
 
   res.status(201).json({
@@ -764,6 +775,74 @@ const confirmWithProof = asyncHandler(async (req, res) => {
 
 // @desc    Download proof file (secure access)
 // @route   GET /api/transfers/:id/proof
+// @desc    Télécharger la pièce d'identité du bénéficiaire (upload à la création)
+// @route   GET /api/transfers/:id/beneficiary-id-proof
+const downloadBeneficiaryIdProof = asyncHandler(async (req, res) => {
+  const transferId = req.params.id;
+
+  const row = await query(
+    `SELECT b.id_proof_filename
+     FROM transfers t
+     JOIN beneficiaries b ON t.beneficiary_id = b.id
+     WHERE t.id = $1`,
+    [transferId]
+  );
+
+  if (row.rows.length === 0) {
+    throw new ApiError(404, 'Transfert non trouvé');
+  }
+
+  const stored = row.rows[0].id_proof_filename;
+  if (!stored) {
+    throw new ApiError(404, 'Aucune pièce d\'identité enregistrée pour ce bénéficiaire');
+  }
+
+  const fs = require('fs');
+  const path = require('path');
+  const { uploadDir } = require('../middleware/beneficiaryIdProof.upload');
+  const filename = path.basename(stored);
+  const filePath = path.join(uploadDir, filename);
+  const resolvedPath = path.resolve(filePath);
+  const resolvedDir = path.resolve(uploadDir);
+
+  if (!resolvedPath.startsWith(resolvedDir)) {
+    throw new ApiError(403, 'Accès non autorisé');
+  }
+
+  if (!fs.existsSync(resolvedPath)) {
+    throw new ApiError(404, 'Fichier introuvable');
+  }
+
+  const ext = path.extname(filename).toLowerCase();
+  const mimeTypes = {
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.pdf': 'application/pdf',
+  };
+  const contentType = mimeTypes[ext] || 'application/octet-stream';
+  const stat = fs.statSync(resolvedPath);
+  const safeFilename = filename.replace(/[^\w.-]/g, '_');
+
+  res.setHeader('Content-Type', contentType);
+  res.setHeader('Content-Length', stat.size);
+  res.setHeader('Content-Disposition', `inline; filename="${safeFilename}"`);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Cache-Control', 'private, no-cache, no-store, must-revalidate');
+
+  try {
+    await new Promise((resolve, reject) => {
+      const fileStream = fs.createReadStream(resolvedPath, { flags: 'r' });
+      fileStream.on('error', reject);
+      res.on('finish', resolve);
+      fileStream.pipe(res);
+    });
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    throw new ApiError(500, 'Erreur lors de la lecture du fichier');
+  }
+});
+
 const downloadProof = asyncHandler(async (req, res) => {
   const user = req.user;
   const transferId = req.params.id;
@@ -957,6 +1036,7 @@ module.exports = {
   create,
   markAsPaid,
   confirmWithProof,
+  downloadBeneficiaryIdProof,
   downloadProof,
   cancel,
   deleteTransfer

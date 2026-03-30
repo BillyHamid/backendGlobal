@@ -57,6 +57,22 @@ const getDashboardStats = asyncHandler(async (req, res) => {
       amount: parseFloat(r.total_amount) || 0,
     }));
 
+  /** Montants à remettre côté bénéficiaire (XOF pour USA→BF, USD pour BF→USA) */
+  const mapCurrencyRemiseRows = (rows) =>
+    (rows || []).map((r) => ({
+      currency: r.currency_received,
+      count: parseInt(r.cnt, 10) || 0,
+      amount: parseFloat(r.total_amount) || 0,
+    }));
+
+  const mapMethodRemiseRows = (rows) =>
+    (rows || []).map((r) => ({
+      sendMethod: r.send_method,
+      currency: r.currency_received,
+      count: parseInt(r.cnt, 10) || 0,
+      amount: parseFloat(r.total_amount) || 0,
+    }));
+
   const [
     pendingByCurrencyRes,
     pendingByMethodRes,
@@ -83,32 +99,32 @@ const getDashboardStats = asyncHandler(async (req, res) => {
       ORDER BY send_method, currency_sent
     `),
     query(`
-      SELECT currency_sent, COUNT(*)::int as cnt, COALESCE(SUM(amount_sent), 0)::float as total_amount
+      SELECT currency_received, COUNT(*)::int as cnt, COALESCE(SUM(amount_received), 0)::float as total_amount
       FROM transfers
       WHERE status = 'pending' AND sender_country = 'USA' AND beneficiary_country = 'BFA'
-      GROUP BY currency_sent
-      ORDER BY currency_sent
+      GROUP BY currency_received
+      ORDER BY currency_received
     `),
     query(`
-      SELECT send_method, currency_sent, COUNT(*)::int as cnt, COALESCE(SUM(amount_sent), 0)::float as total_amount
+      SELECT send_method, currency_received, COUNT(*)::int as cnt, COALESCE(SUM(amount_received), 0)::float as total_amount
       FROM transfers
       WHERE status = 'pending' AND sender_country = 'USA' AND beneficiary_country = 'BFA'
-      GROUP BY send_method, currency_sent
-      ORDER BY send_method, currency_sent
+      GROUP BY send_method, currency_received
+      ORDER BY send_method, currency_received
     `),
     query(`
-      SELECT currency_sent, COUNT(*)::int as cnt, COALESCE(SUM(amount_sent), 0)::float as total_amount
+      SELECT currency_received, COUNT(*)::int as cnt, COALESCE(SUM(amount_received), 0)::float as total_amount
       FROM transfers
       WHERE status = 'pending' AND sender_country = 'BFA' AND beneficiary_country = 'USA'
-      GROUP BY currency_sent
-      ORDER BY currency_sent
+      GROUP BY currency_received
+      ORDER BY currency_received
     `),
     query(`
-      SELECT send_method, currency_sent, COUNT(*)::int as cnt, COALESCE(SUM(amount_sent), 0)::float as total_amount
+      SELECT send_method, currency_received, COUNT(*)::int as cnt, COALESCE(SUM(amount_received), 0)::float as total_amount
       FROM transfers
       WHERE status = 'pending' AND sender_country = 'BFA' AND beneficiary_country = 'USA'
-      GROUP BY send_method, currency_sent
-      ORDER BY send_method, currency_sent
+      GROUP BY send_method, currency_received
+      ORDER BY send_method, currency_received
     `),
     query(`
       SELECT currency_sent, COALESCE(SUM(amount_sent), 0)::float as total_sent
@@ -158,15 +174,15 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     (byCurrency || []).reduce((s, r) => s + (r.count || 0), 0);
 
   const pendingUsaToBf = {
-    count: sumCounts(mapCurrencyRows(pendingUsaBfCurrRes.rows)),
-    byCurrency: mapCurrencyRows(pendingUsaBfCurrRes.rows),
-    byMethod: mapMethodRows(pendingUsaBfMethodRes.rows),
+    count: sumCounts(mapCurrencyRemiseRows(pendingUsaBfCurrRes.rows)),
+    byCurrency: mapCurrencyRemiseRows(pendingUsaBfCurrRes.rows),
+    byMethod: mapMethodRemiseRows(pendingUsaBfMethodRes.rows),
   };
 
   const pendingBfToUsa = {
-    count: sumCounts(mapCurrencyRows(pendingBfUsaCurrRes.rows)),
-    byCurrency: mapCurrencyRows(pendingBfUsaCurrRes.rows),
-    byMethod: mapMethodRows(pendingBfUsaMethodRes.rows),
+    count: sumCounts(mapCurrencyRemiseRows(pendingBfUsaCurrRes.rows)),
+    byCurrency: mapCurrencyRemiseRows(pendingBfUsaCurrRes.rows),
+    byMethod: mapMethodRemiseRows(pendingBfUsaMethodRes.rows),
   };
 
   res.json({
