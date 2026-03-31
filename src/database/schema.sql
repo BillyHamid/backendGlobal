@@ -120,6 +120,18 @@ CREATE TABLE IF NOT EXISTS transfers (
     cancellation_reason TEXT
 );
 
+-- Colonnes ajoutées après la v1 (upgrade path pour bases existantes)
+ALTER TABLE transfers ADD COLUMN IF NOT EXISTS proof_file_path VARCHAR(500);
+ALTER TABLE transfers ADD COLUMN IF NOT EXISTS confirmation_comment TEXT;
+ALTER TABLE transfers ADD COLUMN IF NOT EXISTS confirmed_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE transfers ADD COLUMN IF NOT EXISTS confirmation_ip VARCHAR(50);
+ALTER TABLE transfers ADD COLUMN IF NOT EXISTS rate_reel DECIMAL(15, 4);
+ALTER TABLE transfers DROP CONSTRAINT IF EXISTS transfers_status_check;
+ALTER TABLE transfers ADD CONSTRAINT transfers_status_check
+    CHECK (status IN ('pending', 'in_progress', 'paid', 'confirmed', 'cancelled'));
+
+ALTER TABLE beneficiaries ADD COLUMN IF NOT EXISTS id_proof_filename VARCHAR(500);
+
 CREATE INDEX IF NOT EXISTS idx_transfers_reference ON transfers(reference);
 CREATE INDEX IF NOT EXISTS idx_transfers_status ON transfers(status);
 CREATE INDEX IF NOT EXISTS idx_transfers_created_by ON transfers(created_by);
@@ -214,6 +226,8 @@ CREATE INDEX IF NOT EXISTS idx_ledger_account ON ledger_entries(account_id);
 CREATE INDEX IF NOT EXISTS idx_ledger_transaction ON ledger_entries(transaction_id);
 CREATE INDEX IF NOT EXISTS idx_ledger_created_at ON ledger_entries(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ledger_type ON ledger_entries(type);
+
+ALTER TABLE ledger_entries ADD COLUMN IF NOT EXISTS proof_file_path VARCHAR(500);
 
 -- ============================================
 -- SPECIAL EXPENSES TABLE (Dépenses simples)
