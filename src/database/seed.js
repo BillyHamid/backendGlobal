@@ -126,7 +126,7 @@ async function seed() {
     console.log('  📧 mohamadi@globalexchange.com (Agent BF)');
   console.log('  📧 adjara@globalexchange.com (Agent USA)');
     console.log('');
-    console.log('Password for all accounts: password123');
+    console.log(`Password pattern: ${PASS_ROOT}<suffix> (ex: ${PASS_ROOT}admin)`);
     console.log('');
 
   } catch (error) {

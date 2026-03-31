@@ -5,7 +5,7 @@
 -- ACCOUNTS TABLE (Caisses)
 -- ============================================
 CREATE TABLE IF NOT EXISTS accounts (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(50) NOT NULL UNIQUE CHECK (name IN ('USA', 'BURKINA')),
     currency VARCHAR(10) NOT NULL CHECK (currency IN ('USD', 'XOF')),
     current_balance DECIMAL(15, 2) NOT NULL DEFAULT 0,
@@ -20,7 +20,7 @@ CREATE INDEX idx_accounts_currency ON accounts(currency);
 -- LEDGER ENTRIES TABLE (Journal comptable)
 -- ============================================
 CREATE TABLE IF NOT EXISTS ledger_entries (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT,
     transaction_id UUID REFERENCES transfers(id) ON DELETE SET NULL,
     type VARCHAR(10) NOT NULL CHECK (type IN ('DEBIT', 'CREDIT')),

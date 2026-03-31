@@ -6,7 +6,7 @@
 -- Déduites de TFEES (frais cumulés USA→BF payés)
 -- ============================================
 CREATE TABLE IF NOT EXISTS special_expenses (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     type VARCHAR(20) NOT NULL DEFAULT 'simple_expense' CHECK (type = 'simple_expense'),
     amount DECIMAL(15, 2) NOT NULL CHECK (amount > 0),
     description TEXT NOT NULL,
@@ -30,7 +30,7 @@ CREATE TRIGGER update_special_expenses_updated_at
 -- Une par utilisateur autorisé
 -- ============================================
 CREATE TABLE IF NOT EXISTS personal_wallets (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE RESTRICT,
     balance DECIMAL(15, 2) NOT NULL DEFAULT 0,
     currency VARCHAR(10) NOT NULL DEFAULT 'USD',
@@ -48,7 +48,7 @@ CREATE TRIGGER update_personal_wallets_updated_at
 -- TABLE : loans (Prêts entre admin et Zongo Razack)
 -- ============================================
 CREATE TABLE IF NOT EXISTS loans (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     lender_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     borrower_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     amount DECIMAL(15, 2) NOT NULL CHECK (amount > 0),

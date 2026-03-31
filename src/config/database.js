@@ -46,7 +46,25 @@ const query = async (text, params) => {
   }
 };
 
+/**
+ * Obtenir un client dédié pour une transaction SQL (BEGIN / COMMIT / ROLLBACK).
+ * Usage :
+ *   const client = await getClient();
+ *   try {
+ *     await client.query('BEGIN');
+ *     // ... queries ...
+ *     await client.query('COMMIT');
+ *   } catch (e) {
+ *     await client.query('ROLLBACK');
+ *     throw e;
+ *   } finally {
+ *     client.release();
+ *   }
+ */
+const getClient = () => pool.connect();
+
 module.exports = {
   pool,
-  query
+  query,
+  getClient
 };

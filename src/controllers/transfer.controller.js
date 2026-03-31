@@ -1,4 +1,4 @@
-const { query } = require('../config/database');
+const { query, getClient } = require('../config/database');
 const { asyncHandler, ApiError } = require('../middleware/error.middleware');
 const { v4: uuidv4 } = require('uuid');
 const { FEE_TIERS } = require('../config/constants');
@@ -928,47 +928,104 @@ const downloadProof = asyncHandler(async (req, res) => {
 // @desc    Cancel transfer
 // @route   PATCH /api/transfers/:id/cancel
 const cancel = asyncHandler(async (req, res) => {
+  const user = req.user;
   const { reason } = req.body;
+  const transferId = req.params.id;
 
-  // Check if transfer exists and can be cancelled
   const existing = await query(
-    'SELECT id, status, reference FROM transfers WHERE id = $1',
-    [req.params.id]
+    `SELECT t.id, t.status, t.reference, t.amount_sent, t.amount_received,
+            t.sender_country, t.beneficiary_country, t.currency_sent, t.currency_received
+     FROM transfers t
+     WHERE t.id = $1`,
+    [transferId]
   );
 
   if (existing.rows.length === 0) {
     throw new ApiError(404, 'Transfert non trouvé');
   }
 
-  if (existing.rows[0].status === 'paid') {
-    throw new ApiError(400, 'Un transfert payé ne peut pas être annulé');
-  }
+  const t = existing.rows[0];
 
-  if (existing.rows[0].status === 'cancelled') {
+  if (t.status === 'cancelled') {
     throw new ApiError(400, 'Ce transfert est déjà annulé');
   }
 
-  // Update transfer
-  const result = await query(
-    `UPDATE transfers 
-     SET status = 'cancelled', cancelled_at = CURRENT_TIMESTAMP, cancellation_reason = $1
-     WHERE id = $2
-     RETURNING *`,
-    [reason || 'Annulé par l\'utilisateur', req.params.id]
-  );
+  const client = await getClient();
+  try {
+    await client.query('BEGIN');
 
-  const transfer = result.rows[0];
+    // 1. Récupérer toutes les écritures comptables liées à ce transfert
+    const ledgerRows = await client.query(
+      `SELECT le.id, le.type, le.amount, le.currency, a.name as account_name
+       FROM ledger_entries le
+       JOIN accounts a ON le.account_id = a.id
+       WHERE le.transaction_id = $1`,
+      [transferId]
+    );
 
-  res.json({
-    success: true,
-    message: `Transfert ${transfer.reference} annulé`,
-    data: {
-      id: transfer.id,
-      reference: transfer.reference,
-      status: transfer.status,
-      cancelledAt: transfer.cancelled_at
+    // 2. Créer une écriture inverse pour chaque écriture existante
+    for (const entry of ledgerRows.rows) {
+      const reverseType = entry.type === 'CREDIT' ? 'DEBIT' : 'CREDIT';
+      const accountResult = await client.query(
+        'SELECT id FROM accounts WHERE name = $1', [entry.account_name]
+      );
+      await client.query(
+        `INSERT INTO ledger_entries (account_id, transaction_id, type, amount, currency, description, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          accountResult.rows[0].id,
+          transferId,
+          reverseType,
+          entry.amount,
+          entry.currency,
+          `ANNULATION ${t.reference} - Contre-passation ${entry.type} ${entry.amount} ${entry.currency}`,
+          user.id
+        ]
+      );
     }
-  });
+
+    // 3. Passer le transfert en cancelled
+    const result = await client.query(
+      `UPDATE transfers
+       SET status = 'cancelled', cancelled_at = CURRENT_TIMESTAMP, cancellation_reason = $1
+       WHERE id = $2
+       RETURNING *`,
+      [reason || 'Annulé par l\'utilisateur', transferId]
+    );
+
+    // 4. Journaliser
+    const ipAddress = req.ip || req.connection.remoteAddress || req.headers['x-forwarded-for'] || 'unknown';
+    const userAgent = req.headers['user-agent'] || 'unknown';
+    await client.query(
+      `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, old_values, ip_address, user_agent)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        user.id, 'TRANSFER_CANCELLED', 'transfer', transferId,
+        JSON.stringify({ reference: t.reference, previousStatus: t.status, reason: reason || null, reversedEntries: ledgerRows.rows.length }),
+        ipAddress, userAgent
+      ]
+    );
+
+    await client.query('COMMIT');
+
+    const transfer = result.rows[0];
+    res.json({
+      success: true,
+      message: `Transfert ${transfer.reference} annulé — ${ledgerRows.rows.length} écriture(s) comptable(s) contre-passée(s)`,
+      data: {
+        id: transfer.id,
+        reference: transfer.reference,
+        status: transfer.status,
+        cancelledAt: transfer.cancelled_at,
+        reversedEntries: ledgerRows.rows.length
+      }
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 });
 
 // @desc    Delete transfer (admin only)
@@ -977,9 +1034,8 @@ const deleteTransfer = asyncHandler(async (req, res) => {
   const user = req.user;
   const transferId = req.params.id;
 
-  // Vérifier que la transaction existe
   const existing = await query(
-    'SELECT id, reference, proof_file_path FROM transfers WHERE id = $1',
+    'SELECT id, reference, status, proof_file_path, amount_sent, amount_received, sender_country, beneficiary_country, currency_sent, currency_received FROM transfers WHERE id = $1',
     [transferId]
   );
 
@@ -989,43 +1045,96 @@ const deleteTransfer = asyncHandler(async (req, res) => {
 
   const transfer = existing.rows[0];
 
-  // Supprimer le fichier de preuve s'il existe
-  if (transfer.proof_file_path) {
-    try {
-      const fs = require('fs');
-      const path = require('path');
-      const { uploadDir } = require('../services/fileSecurity.service');
-      const filePath = path.join(uploadDir, path.basename(transfer.proof_file_path));
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      }
-    } catch (fileError) {
-      console.error('Erreur lors de la suppression du fichier de preuve:', fileError);
-      // Continuer même si la suppression du fichier échoue
+  const client = await getClient();
+  try {
+    await client.query('BEGIN');
+
+    // 1. Récupérer toutes les écritures comptables liées
+    const ledgerRows = await client.query(
+      `SELECT le.id, le.type, le.amount, le.currency, a.name as account_name
+       FROM ledger_entries le
+       JOIN accounts a ON le.account_id = a.id
+       WHERE le.transaction_id = $1`,
+      [transferId]
+    );
+
+    // 2. Créer les contre-passations pour corriger les soldes
+    for (const entry of ledgerRows.rows) {
+      const reverseType = entry.type === 'CREDIT' ? 'DEBIT' : 'CREDIT';
+      const accountResult = await client.query(
+        'SELECT id FROM accounts WHERE name = $1', [entry.account_name]
+      );
+      await client.query(
+        `INSERT INTO ledger_entries (account_id, transaction_id, type, amount, currency, description, created_by)
+         VALUES ($1, NULL, $2, $3, $4, $5, $6)`,
+        [
+          accountResult.rows[0].id,
+          reverseType,
+          entry.amount,
+          entry.currency,
+          `SUPPRESSION ${transfer.reference} - Contre-passation ${entry.type} ${entry.amount} ${entry.currency}`,
+          user.id
+        ]
+      );
     }
+
+    // 3. Supprimer les écritures comptables originales (transaction_id sera NULL après DELETE du transfert de toute façon)
+    await client.query(
+      'DELETE FROM ledger_entries WHERE transaction_id = $1',
+      [transferId]
+    );
+
+    // 4. Supprimer le transfert
+    await client.query('DELETE FROM transfers WHERE id = $1', [transferId]);
+
+    // 5. Journaliser dans audit_logs
+    const ipAddress = req.ip || req.connection.remoteAddress || req.headers['x-forwarded-for'] || 'unknown';
+    const userAgent = req.headers['user-agent'] || 'unknown';
+    await client.query(
+      `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, old_values, ip_address, user_agent)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        user.id, 'TRANSFER_DELETED', 'transfer', transferId,
+        JSON.stringify({
+          reference: transfer.reference,
+          status: transfer.status,
+          amountSent: parseFloat(transfer.amount_sent),
+          amountReceived: parseFloat(transfer.amount_received),
+          senderCountry: transfer.sender_country,
+          beneficiaryCountry: transfer.beneficiary_country,
+          reversedEntries: ledgerRows.rows.length
+        }),
+        ipAddress, userAgent
+      ]
+    );
+
+    await client.query('COMMIT');
+
+    // 6. Supprimer le fichier de preuve (hors transaction SQL car c'est du filesystem)
+    if (transfer.proof_file_path) {
+      try {
+        const fs = require('fs');
+        const path = require('path');
+        const { uploadDir } = require('../services/fileSecurity.service');
+        const filePath = path.join(uploadDir, path.basename(transfer.proof_file_path));
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      } catch (fileError) {
+        console.error('Erreur suppression fichier preuve:', fileError);
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Transfert ${transfer.reference} supprimé — ${ledgerRows.rows.length} écriture(s) comptable(s) corrigée(s)`
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
   }
-
-  // Supprimer le transfert
-  await query('DELETE FROM transfers WHERE id = $1', [transferId]);
-
-  // Journaliser la suppression
-  const ipAddress = req.ip || req.connection.remoteAddress || req.headers['x-forwarded-for'] || 'unknown';
-  const userAgent = req.headers['user-agent'] || 'unknown';
-  await logAction(
-    user.id,
-    'TRANSFER_DELETED',
-    'transfer',
-    transferId,
-    { reference: transfer.reference },
-    null,
-    ipAddress,
-    userAgent
-  );
-
-  res.json({
-    success: true,
-    message: `Transfert ${transfer.reference} supprimé avec succès`
-  });
 });
 
 module.exports = {

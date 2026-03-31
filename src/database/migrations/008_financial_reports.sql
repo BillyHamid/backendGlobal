@@ -1,7 +1,7 @@
 -- 008: Rapports financiers avec justificatifs (Bernadette → admin SANA)
 
 CREATE TABLE IF NOT EXISTS financial_reports (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     created_by UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     total_amount DECIMAL(15, 2) NOT NULL CHECK (total_amount > 0),
     comment TEXT,
@@ -21,7 +21,7 @@ CREATE INDEX IF NOT EXISTS idx_financial_reports_status ON financial_reports(sta
 CREATE INDEX IF NOT EXISTS idx_financial_reports_created_at ON financial_reports(created_at DESC);
 
 CREATE TABLE IF NOT EXISTS financial_report_items (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     report_id UUID NOT NULL REFERENCES financial_reports(id) ON DELETE CASCADE,
     label TEXT NOT NULL,
     amount DECIMAL(15, 2) NOT NULL CHECK (amount > 0),
