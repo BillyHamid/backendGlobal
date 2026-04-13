@@ -2,7 +2,7 @@ const express = require('express');
 const { body, param, query } = require('express-validator');
 const transferController = require('../controllers/transfer.controller');
 const { validate } = require('../middleware/validate.middleware');
-const { authenticate, hasPermission } = require('../middleware/auth.middleware');
+const { authenticate, hasPermission, canModifyTransferAdminOrRazack, canCancelTransferPrivileged } = require('../middleware/auth.middleware');
 const { uploadProof, validateProofUpload } = require('../middleware/upload.middleware');
 const { maybeMultipartTransferCreate } = require('../middleware/transferCreateBody.middleware');
 const { VALID_SEND_METHODS } = require('../config/constants');
@@ -63,6 +63,26 @@ router.post('/', hasPermission('transfers.create'), maybeMultipartTransferCreate
   validate
 ], transferController.create);
 
+// PATCH /api/transfers/:id - Modifier un transfert en attente (admin ou Razack uniquement)
+router.patch('/:id', hasPermission('transfers.view'), canModifyTransferAdminOrRazack, [
+  param('id').isUUID().withMessage('ID invalide'),
+  body('sender.firstName').notEmpty().withMessage('Prénom expéditeur requis'),
+  body('sender.lastName').notEmpty().withMessage('Nom expéditeur requis'),
+  body('sender.phone').notEmpty().withMessage('Téléphone expéditeur requis'),
+  body('sender.country').notEmpty().withMessage('Pays expéditeur requis'),
+  body('sendMethod').isIn(VALID_SEND_METHODS).withMessage('Méthode de paiement invalide'),
+  body('beneficiary.firstName').notEmpty().withMessage('Prénom bénéficiaire requis'),
+  body('beneficiary.lastName').notEmpty().withMessage('Nom bénéficiaire requis'),
+  body('beneficiary.phone').notEmpty().withMessage('Téléphone bénéficiaire requis'),
+  body('beneficiary.country').notEmpty().withMessage('Pays bénéficiaire requis'),
+  body('beneficiary.city').notEmpty().withMessage('Ville bénéficiaire requise'),
+  body('amountSent').isFloat({ min: 1 }).withMessage('Montant invalide'),
+  body('currency').isIn(['USD', 'XOF']).withMessage('Seules les devises USD et XOF sont supportées'),
+  body('exchangeRate').isFloat({ min: 1 }).withMessage('Taux de change invalide'),
+  body('fees').optional().isFloat({ min: 0 }).withMessage('Frais invalides'),
+  validate
+], transferController.updateTransfer);
+
 // PATCH /api/transfers/:id/pay - Mark transfer as paid (legacy - sans preuve)
 router.patch('/:id/pay', hasPermission('transfers.pay'), [
   param('id').isUUID().withMessage('ID invalide'),
@@ -92,8 +112,8 @@ router.get('/:id/proof', hasPermission('transfers.view'), [
   validate
 ], transferController.downloadProof);
 
-// PATCH /api/transfers/:id/cancel - Cancel transfer
-router.patch('/:id/cancel', hasPermission('transfers.cancel'), [
+// PATCH /api/transfers/:id/cancel - Cancel transfer (admin, superviseur ou Razack)
+router.patch('/:id/cancel', canCancelTransferPrivileged, [
   param('id').isUUID().withMessage('ID invalide'),
   body('reason').optional().isString(),
   validate

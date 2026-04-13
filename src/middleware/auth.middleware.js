@@ -157,8 +157,51 @@ const hasPermission = (permission) => {
   };
 };
 
+/** Annulation de transfert : admin, superviseur, ou Zongo Razack (même email que modification privilégiée) */
+const canCancelTransferPrivileged = (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({
+      success: false,
+      message: 'Authentification requise.'
+    });
+  }
+  const { RAZACK_TRANSFER_EDIT_EMAIL } = require('../config/constants');
+  const email = (req.user.email || '').toLowerCase();
+  if (req.user.role === 'admin' || req.user.role === 'supervisor') {
+    return next();
+  }
+  if (email === RAZACK_TRANSFER_EDIT_EMAIL) {
+    return next();
+  }
+  return res.status(403).json({
+    success: false,
+    message: 'Permission \'transfers.cancel\' requise.'
+  });
+};
+
+/** Modification de transfert : admin ou compte Razack uniquement (pas superviseur ni autres agents) */
+const canModifyTransferAdminOrRazack = (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({
+      success: false,
+      message: 'Authentification requise.'
+    });
+  }
+  const { RAZACK_TRANSFER_EDIT_EMAIL } = require('../config/constants');
+  const email = (req.user.email || '').toLowerCase();
+  if (req.user.role === 'admin' || email === RAZACK_TRANSFER_EDIT_EMAIL) {
+    return next();
+  }
+  return res.status(403).json({
+    success: false,
+    message: 'Seuls l\'administrateur et Razack peuvent modifier un transfert.'
+  });
+};
+
 module.exports = {
   authenticate,
   authorize,
-  hasPermission
+  hasPermission,
+  canCancelTransferPrivileged,
+  canModifyTransferAdminOrRazack
 };

@@ -347,14 +347,12 @@ const create = asyncHandler(async (req, res) => {
       ? Math.min(customFees, calculatedFees)
       : calculatedFees;
   } else {
+    // USA → BF : grille = suggestion par défaut ; l’agent peut fixer librement les frais (≥ 0), sans plafond
     const calculatedFees = calculateFees(amountSent, currency);
     fees = calculatedFees;
     if (customFees !== undefined && customFees !== null) {
       if (customFees < 0) {
         throw new ApiError(400, 'Les frais ne peuvent pas être négatifs');
-      }
-      if (customFees > calculatedFees) {
-        throw new ApiError(400, `Les frais ne peuvent pas dépasser ${calculatedFees} ${currency}`);
       }
       fees = customFees;
     }
@@ -523,6 +521,266 @@ const create = asyncHandler(async (req, res) => {
       createdAt: transfer.created_at
     }
   });
+});
+
+const moneyClose = (a, b) => Math.abs(parseFloat(a) - parseFloat(b)) < 0.015;
+
+/** Contre-passer les écritures liées au transfert (même logique que annulation, sans changer le statut) */
+const reverseLedgerForTransferTx = async (client, transferId, reference, userId) => {
+  const ledgerRows = await client.query(
+    `SELECT le.id, le.type, le.amount, le.currency, a.name as account_name
+     FROM ledger_entries le
+     JOIN accounts a ON le.account_id = a.id
+     WHERE le.transaction_id = $1`,
+    [transferId]
+  );
+  for (const entry of ledgerRows.rows) {
+    const reverseType = entry.type === 'CREDIT' ? 'DEBIT' : 'CREDIT';
+    const accountResult = await client.query('SELECT id FROM accounts WHERE name = $1', [entry.account_name]);
+    if (accountResult.rows.length === 0) {
+      throw new ApiError(500, `Compte ${entry.account_name} introuvable`);
+    }
+    await client.query(
+      `INSERT INTO ledger_entries (account_id, transaction_id, type, amount, currency, description, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        accountResult.rows[0].id,
+        transferId,
+        reverseType,
+        entry.amount,
+        entry.currency,
+        `MODIFICATION ${reference} - Contre-passation ${entry.type} ${entry.amount} ${entry.currency}`,
+        userId
+      ]
+    );
+  }
+  return ledgerRows.rows.length;
+};
+
+/** Recréer l'écriture « réception caisse » à la création (transfert pending) — aligné sur create() */
+const appendInitialLedgerForTransferTx = async (client, {
+  reference, transferId, senderCountry, beneficiaryCountry, amountSent, userId
+}) => {
+  const amt = parseFloat(amountSent);
+  const insertCredit = async (accountName, currency, description) => {
+    const acc = await client.query('SELECT id FROM accounts WHERE name = $1', [accountName]);
+    if (acc.rows.length === 0) {
+      throw new ApiError(500, `Compte ${accountName} introuvable`);
+    }
+    await client.query(
+      `INSERT INTO ledger_entries (account_id, transaction_id, type, amount, currency, description, created_by)
+       VALUES ($1, $2, 'CREDIT', $3, $4, $5, $6)`,
+      [acc.rows[0].id, transferId, amt, currency, description, userId]
+    );
+  };
+
+  if (senderCountry === 'USA' || senderCountry === 'États-Unis') {
+    await insertCredit('USA', 'USD', `Transfert ${reference} - Réception ${amt} USD`);
+  } else if (senderCountry === 'BFA' || senderCountry === 'Burkina Faso') {
+    if (beneficiaryCountry === 'USA') {
+      await insertCredit('BURKINA', 'XOF', `Transfert ${reference} - Réception ${amt} XOF (client BF → USA)`);
+    } else {
+      await insertCredit('BURKINA', 'XOF', `Transfert ${reference} - Réception ${amt} XOF`);
+    }
+  }
+};
+
+// @desc    Mettre à jour un transfert en attente (admin ou Razack uniquement)
+// @route   PATCH /api/transfers/:id
+const updateTransfer = asyncHandler(async (req, res) => {
+  const transferId = req.params.id;
+  const user = req.user;
+  const {
+    sender,
+    beneficiary,
+    amountSent,
+    currency,
+    exchangeRate,
+    sendMethod,
+    notes,
+    fees: customFees,
+    currencyReceived
+  } = req.body;
+
+  const existingResult = await query('SELECT * FROM transfers WHERE id = $1', [transferId]);
+
+  if (existingResult.rows.length === 0) {
+    throw new ApiError(404, 'Transfert non trouvé');
+  }
+
+  const row = existingResult.rows[0];
+
+  if (row.status !== 'pending') {
+    throw new ApiError(400, 'Seuls les transferts en attente peuvent être modifiés');
+  }
+
+  if (!row.sender_id || !row.beneficiary_id) {
+    throw new ApiError(400, 'Transfert incomplet (expéditeur ou bénéficiaire manquant)');
+  }
+
+  const isUSAtoBF = sender.country === 'USA' && beneficiary.country === 'BFA';
+  const isBFtoUSA = sender.country === 'BFA' && beneficiary.country === 'USA';
+  if (!isUSAtoBF && !isBFtoUSA) {
+    throw new ApiError(400, 'Corridor invalide : uniquement USA ↔ Burkina Faso');
+  }
+
+  const rateReel = await fetchUsdToXofRate();
+
+  let fees;
+  if (isBFtoUSA) {
+    const ratePaiement = exchangeRate;
+    const calculatedFees = ratePaiement > rateReel
+      ? Math.round(((amountSent / rateReel) - (amountSent / ratePaiement)) * 100) / 100
+      : 0;
+    fees = (customFees !== undefined && customFees !== null && customFees >= 0)
+      ? Math.min(customFees, calculatedFees)
+      : calculatedFees;
+  } else {
+    // USA → BF : même règle que create (frais libres, sans plafond)
+    const calculatedFees = calculateFees(amountSent, currency);
+    fees = calculatedFees;
+    if (customFees !== undefined && customFees !== null) {
+      if (customFees < 0) {
+        throw new ApiError(400, 'Les frais ne peuvent pas être négatifs');
+      }
+      fees = customFees;
+    }
+  }
+
+  let amountReceived;
+  let finalCurrencyReceived;
+  if (isUSAtoBF) {
+    amountReceived = Math.round(amountSent * exchangeRate);
+    finalCurrencyReceived = currencyReceived || 'XOF';
+  } else if (isBFtoUSA) {
+    amountReceived = Math.round((amountSent / exchangeRate) * 100) / 100;
+    finalCurrencyReceived = currencyReceived || 'USD';
+  } else {
+    amountReceived = Math.round(amountSent * exchangeRate);
+    finalCurrencyReceived = currencyReceived || 'XOF';
+  }
+
+  const ledgerNeedsRefresh =
+    !moneyClose(amountSent, row.amount_sent) ||
+    row.currency_sent !== currency ||
+    !moneyClose(exchangeRate, row.exchange_rate) ||
+    !moneyClose(fees, row.fees) ||
+    !moneyClose(amountReceived, row.amount_received) ||
+    row.currency_received !== finalCurrencyReceived ||
+    row.sender_country !== sender.country ||
+    row.beneficiary_country !== beneficiary.country;
+
+  const ipAddress = req.ip || req.connection.remoteAddress || req.headers['x-forwarded-for'] || 'unknown';
+  const userAgent = req.headers['user-agent'] || 'unknown';
+
+  const client = await getClient();
+  try {
+    await client.query('BEGIN');
+
+    if (ledgerNeedsRefresh) {
+      await reverseLedgerForTransferTx(client, transferId, row.reference, user.id);
+    }
+
+    await client.query(
+      `UPDATE senders SET first_name = $1, last_name = $2, phone = $3, email = $4, country = $5, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $6`,
+      [
+        sender.firstName,
+        sender.lastName,
+        sender.phone,
+        sender.email || null,
+        sender.country,
+        row.sender_id
+      ]
+    );
+
+    await client.query(
+      `UPDATE beneficiaries SET first_name = $1, last_name = $2, phone = $3, country = $4, city = $5,
+        id_type = $6, id_number = $7, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $8`,
+      [
+        beneficiary.firstName,
+        beneficiary.lastName,
+        beneficiary.phone,
+        beneficiary.country,
+        beneficiary.city,
+        beneficiary.idType || null,
+        beneficiary.idNumber || null,
+        row.beneficiary_id
+      ]
+    );
+
+    await client.query(
+      `UPDATE transfers SET
+        sender_country = $1, send_method = $2,
+        beneficiary_country = $3, beneficiary_city = $4,
+        amount_sent = $5, currency_sent = $6, exchange_rate = $7, rate_reel = $8,
+        fees = $9, amount_received = $10, currency_received = $11,
+        notes = $12, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $13`,
+      [
+        sender.country,
+        sendMethod,
+        beneficiary.country,
+        beneficiary.city,
+        amountSent,
+        currency,
+        exchangeRate,
+        rateReel,
+        fees,
+        amountReceived,
+        finalCurrencyReceived,
+        notes || null,
+        transferId
+      ]
+    );
+
+    if (ledgerNeedsRefresh) {
+      await appendInitialLedgerForTransferTx(client, {
+        reference: row.reference,
+        transferId,
+        senderCountry: sender.country,
+        beneficiaryCountry: beneficiary.country,
+        amountSent,
+        userId: user.id
+      });
+    }
+
+    await client.query(
+      `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, old_values, new_values, ip_address, user_agent)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [
+        user.id,
+        'TRANSFER_UPDATED',
+        'transfer',
+        transferId,
+        JSON.stringify({
+          reference: row.reference,
+          ledgerAdjusted: ledgerNeedsRefresh,
+          previousAmountSent: parseFloat(row.amount_sent),
+          previousAmountReceived: parseFloat(row.amount_received)
+        }),
+        JSON.stringify({
+          amountSent,
+          amountReceived,
+          senderCountry: sender.country,
+          beneficiaryCountry: beneficiary.country
+        }),
+        ipAddress,
+        userAgent
+      ]
+    );
+
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  req.params.id = transferId;
+  return getById(req, res);
 });
 
 // @desc    Mark transfer as paid
@@ -934,7 +1192,8 @@ const cancel = asyncHandler(async (req, res) => {
 
   const existing = await query(
     `SELECT t.id, t.status, t.reference, t.amount_sent, t.amount_received,
-            t.sender_country, t.beneficiary_country, t.currency_sent, t.currency_received
+            t.sender_country, t.beneficiary_country, t.currency_sent, t.currency_received,
+            t.proof_file_path
      FROM transfers t
      WHERE t.id = $1`,
     [transferId]
@@ -949,6 +1208,8 @@ const cancel = asyncHandler(async (req, res) => {
   if (t.status === 'cancelled') {
     throw new ApiError(400, 'Ce transfert est déjà annulé');
   }
+
+  const proofPathBeforeCancel = t.proof_file_path;
 
   const client = await getClient();
   try {
@@ -984,10 +1245,19 @@ const cancel = asyncHandler(async (req, res) => {
       );
     }
 
-    // 3. Passer le transfert en cancelled
+    // 3. Passer le transfert en annulé et effacer les infos de paiement / preuve (comme une clôture métier)
     const result = await client.query(
       `UPDATE transfers
-       SET status = 'cancelled', cancelled_at = CURRENT_TIMESTAMP, cancellation_reason = $1
+       SET status = 'cancelled',
+           cancelled_at = CURRENT_TIMESTAMP,
+           cancellation_reason = $1,
+           paid_at = NULL,
+           paid_by = NULL,
+           proof_file_path = NULL,
+           confirmation_comment = NULL,
+           confirmed_at = NULL,
+           confirmation_ip = NULL,
+           updated_at = CURRENT_TIMESTAMP
        WHERE id = $2
        RETURNING *`,
       [reason || 'Annulé par l\'utilisateur', transferId]
@@ -1009,6 +1279,22 @@ const cancel = asyncHandler(async (req, res) => {
     await client.query('COMMIT');
 
     const transfer = result.rows[0];
+
+    // Fichier de preuve : retirer du disque après succès SQL (hors transaction)
+    if (proofPathBeforeCancel) {
+      try {
+        const fs = require('fs');
+        const path = require('path');
+        const { uploadDir } = require('../services/fileSecurity.service');
+        const filePath = path.join(uploadDir, path.basename(proofPathBeforeCancel));
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      } catch (fileErr) {
+        console.error('Erreur suppression fichier preuve après annulation:', fileErr);
+      }
+    }
+
     res.json({
       success: true,
       message: `Transfert ${transfer.reference} annulé — ${ledgerRows.rows.length} écriture(s) comptable(s) contre-passée(s)`,
@@ -1143,6 +1429,7 @@ module.exports = {
   getById,
   getByReference,
   create,
+  updateTransfer,
   markAsPaid,
   confirmWithProof,
   downloadBeneficiaryIdProof,
