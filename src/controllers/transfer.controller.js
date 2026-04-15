@@ -73,6 +73,13 @@ const calculateFees = (amount, currency) => {
   }
 };
 
+/** Frais optionnels (body JSON / payload multipart). undefined|null|'' = laisser le calcul serveur. */
+function parseOptionalFeesInput(raw) {
+  if (raw === undefined || raw === null || raw === '') return null;
+  const n = typeof raw === 'number' ? raw : parseFloat(String(raw).replace(/\s/g, '').replace(',', '.'));
+  return Number.isFinite(n) ? n : null;
+}
+
 // @desc    Get all transfers
 // @route   GET /api/transfers
 const getAll = asyncHandler(async (req, res) => {
@@ -343,18 +350,25 @@ const create = asyncHandler(async (req, res) => {
     const calculatedFees = ratePaiement > rateReel
       ? Math.round(((amountSent / rateReel) - (amountSent / ratePaiement)) * 100) / 100
       : 0;
-    fees = (customFees !== undefined && customFees !== null && customFees >= 0)
-      ? Math.min(customFees, calculatedFees)
+    const feeVal = parseOptionalFeesInput(customFees);
+    fees = feeVal !== null && feeVal >= 0
+      ? Math.min(feeVal, calculatedFees)
       : calculatedFees;
   } else {
-    // USA → BF : grille = suggestion par défaut ; l’agent peut fixer librement les frais (≥ 0), sans plafond
+    // USA → BF : calculateFees() = grille indicative uniquement (défaut si le client n’envoie pas de frais).
+    // Ne jamais rejeter si frais saisis > grille (ex. prod historique : « ne peuvent pas dépasser 20 USD » pour ~1200 USD).
+    // Seule contrainte : frais ≥ 0.
     const calculatedFees = calculateFees(amountSent, currency);
     fees = calculatedFees;
-    if (customFees !== undefined && customFees !== null) {
-      if (customFees < 0) {
+    const feeVal = parseOptionalFeesInput(customFees);
+    if (feeVal !== null) {
+      if (feeVal < 0) {
         throw new ApiError(400, 'Les frais ne peuvent pas être négatifs');
       }
-      fees = customFees;
+      fees = feeVal;
+    }
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[USA→BF frais]', { amountSent, grilleIndicativeUSD: calculatedFees, fraisRetenus: fees, clientEnvoyé: feeVal });
     }
   }
   
@@ -632,18 +646,20 @@ const updateTransfer = asyncHandler(async (req, res) => {
     const calculatedFees = ratePaiement > rateReel
       ? Math.round(((amountSent / rateReel) - (amountSent / ratePaiement)) * 100) / 100
       : 0;
-    fees = (customFees !== undefined && customFees !== null && customFees >= 0)
-      ? Math.min(customFees, calculatedFees)
+    const feeVal = parseOptionalFeesInput(customFees);
+    fees = feeVal !== null && feeVal >= 0
+      ? Math.min(feeVal, calculatedFees)
       : calculatedFees;
   } else {
-    // USA → BF : même règle que create (frais libres, sans plafond)
+    // USA → BF : même règle que create (grille = indicative ; pas de plafond sur les frais saisis).
     const calculatedFees = calculateFees(amountSent, currency);
     fees = calculatedFees;
-    if (customFees !== undefined && customFees !== null) {
-      if (customFees < 0) {
+    const feeVal = parseOptionalFeesInput(customFees);
+    if (feeVal !== null) {
+      if (feeVal < 0) {
         throw new ApiError(400, 'Les frais ne peuvent pas être négatifs');
       }
-      fees = customFees;
+      fees = feeVal;
     }
   }
 
