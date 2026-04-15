@@ -10,6 +10,8 @@ function buildAllowedOriginsList() {
     'http://localhost:5175',
     'http://127.0.0.1:5173',
     'https://global-ex-woad.vercel.app',
+    'https://globalexchangeusa.cloud',
+    'https://www.globalexchangeusa.cloud',
     process.env.FRONTEND_URL,
   ].filter(Boolean);
 }

@@ -23,6 +23,9 @@ router.get('/', hasPermission('transfers.view'), [
 // GET /api/transfers/pending - Get pending transfers (for payer agents)
 router.get('/pending', hasPermission('transfers.view'), transferController.getPending);
 
+// GET /api/transfers/reference/:ref — avant /:id pour éviter que « reference » soit pris pour un id
+router.get('/reference/:ref', hasPermission('transfers.view'), transferController.getByReference);
+
 // GET /api/transfers/:id/beneficiary-id-proof - Pièce d'identité bénéficiaire (création transfert)
 router.get('/:id/beneficiary-id-proof', hasPermission('transfers.view'), [
   param('id').isUUID().withMessage('ID invalide'),
@@ -34,9 +37,6 @@ router.get('/:id', hasPermission('transfers.view'), [
   param('id').isUUID().withMessage('ID invalide'),
   validate
 ], transferController.getById);
-
-// GET /api/transfers/reference/:ref - Get transfer by reference
-router.get('/reference/:ref', hasPermission('transfers.view'), transferController.getByReference);
 
 // POST /api/transfers - Create new transfer (JSON ou multipart: payload + beneficiary_id_proof optionnel)
 router.post('/', hasPermission('transfers.create'), maybeMultipartTransferCreate, [
