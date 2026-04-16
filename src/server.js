@@ -1,4 +1,6 @@
-require('dotenv').config();
+const path = require('path');
+// Toujours charger le .env à la racine du backend (parent de src/), même si PM2 a un cwd différent
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 if (!process.env.JWT_SECRET) {
   console.error('❌ JWT_SECRET manquant dans .env. Tous les tokens seront invalides.');
