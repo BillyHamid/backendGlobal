@@ -83,7 +83,7 @@ function parseOptionalFeesInput(raw) {
 // @desc    Get all transfers
 // @route   GET /api/transfers
 const getAll = asyncHandler(async (req, res) => {
-  const { status, page = 1, limit = 20 } = req.query;
+  const { status, startDate, endDate, page = 1, limit = 20 } = req.query;
   const offset = (page - 1) * limit;
   const user = req.user;
 
@@ -114,6 +114,18 @@ const getAll = asyncHandler(async (req, res) => {
     params.push(status);
   }
 
+  // Filtre par période (ex: mois sélectionné dans l'UI). startDate/endDate au format YYYY-MM-DD.
+  if (startDate) {
+    paramCount++;
+    sql += ` AND t.created_at >= $${paramCount}`;
+    params.push(startDate);
+  }
+  if (endDate) {
+    paramCount++;
+    sql += ` AND t.created_at < ($${paramCount}::date + INTERVAL '1 day')`;
+    params.push(endDate);
+  }
+
   sql += ' ORDER BY t.created_at DESC';
   sql += ` LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`;
   params.push(limit, offset);
@@ -123,15 +135,50 @@ const getAll = asyncHandler(async (req, res) => {
   // Get total count (same filters as main query)
   let countSql = 'SELECT COUNT(*) FROM transfers t WHERE 1=1';
   const countParams = [];
+  let countParamCount = 0;
   if (status) {
+    countParamCount++;
     countParams.push(status);
-    countSql += ' AND t.status = $1';
+    countSql += ` AND t.status = $${countParamCount}`;
+  }
+  if (startDate) {
+    countParamCount++;
+    countParams.push(startDate);
+    countSql += ` AND t.created_at >= $${countParamCount}`;
+  }
+  if (endDate) {
+    countParamCount++;
+    countParams.push(endDate);
+    countSql += ` AND t.created_at < ($${countParamCount}::date + INTERVAL '1 day')`;
   }
   const countResult = await query(countSql, countParams);
   const total = parseInt(countResult.rows[0].count);
 
+  // Répartition par statut sur la période filtrée (indépendante du statut sélectionné),
+  // pour que les cartes de synthèse restent correctes même si le tableau est paginé.
+  let statusCountSql = 'SELECT status, COUNT(*)::int as count FROM transfers t WHERE 1=1';
+  const statusCountParams = [];
+  let statusCountParamCount = 0;
+  if (startDate) {
+    statusCountParamCount++;
+    statusCountParams.push(startDate);
+    statusCountSql += ` AND t.created_at >= $${statusCountParamCount}`;
+  }
+  if (endDate) {
+    statusCountParamCount++;
+    statusCountParams.push(endDate);
+    statusCountSql += ` AND t.created_at < ($${statusCountParamCount}::date + INTERVAL '1 day')`;
+  }
+  statusCountSql += ' GROUP BY status';
+  const statusCountResult = await query(statusCountSql, statusCountParams);
+  const statusCounts = statusCountResult.rows.reduce((acc, r) => {
+    acc[r.status] = r.count;
+    return acc;
+  }, {});
+
   res.json({
     success: true,
+    statusCounts,
     data: result.rows.map(t => ({
       id: t.id,
       reference: t.reference,
