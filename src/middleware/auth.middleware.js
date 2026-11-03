@@ -19,7 +19,7 @@ const authenticate = async (req, res, next) => {
     // même pour les tokens émis avant cette modification.
     const { query } = require('../config/database');
     const result = await query(
-      'SELECT id, email, name, role, country, agent_code, is_active, has_special_access FROM users WHERE id = $1',
+      'SELECT id, email, name, role, country, agent_code, is_active, has_special_access, token_version FROM users WHERE id = $1',
       [decoded.userId]
     );
 
@@ -31,6 +31,11 @@ const authenticate = async (req, res, next) => {
     }
 
     const user = result.rows[0];
+    // Les tokens précédant cette migration valent 0. Une modification du mot
+    // de passe incrémente la version sans déconnecter les autres utilisateurs.
+    if ((decoded.tokenVersion ?? 0) !== user.token_version) {
+      return res.status(401).json({ success: false, message: 'Votre session a été révoquée. Veuillez vous reconnecter.' });
+    }
     if (!user.is_active) {
       return res.status(401).json({
         success: false,

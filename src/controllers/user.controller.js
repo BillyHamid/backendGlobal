@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const { query } = require('../config/database');
 const { asyncHandler, ApiError } = require('../middleware/error.middleware');
+const logger = require('../utils/logger');
 
 // @desc    Get all users
 // @route   GET /api/users
@@ -180,6 +181,20 @@ const update = asyncHandler(async (req, res) => {
   });
 });
 
+// @desc    Reset a user's password and invalidate their existing sessions
+// @route   PUT /api/users/:id/password
+const resetPassword = asyncHandler(async (req, res) => {
+  const hashedPassword = await bcrypt.hash(req.body.newPassword, 10);
+  const result = await query(
+    `UPDATE users SET password = $1, token_version = token_version + 1
+     WHERE id = $2 RETURNING id`,
+    [hashedPassword, req.params.id]
+  );
+  if (result.rows.length === 0) throw new ApiError(404, 'Utilisateur non trouvé');
+  logger.info('user.password_reset', { userId: req.params.id, by: req.user.id });
+  res.json({ success: true, message: 'Mot de passe modifié. Les anciennes sessions sont déconnectées.' });
+});
+
 // @desc    Delete user
 // @route   DELETE /api/users/:id
 const deleteUser = asyncHandler(async (req, res) => {
@@ -224,6 +239,7 @@ module.exports = {
   getById,
   create,
   update,
+  resetPassword,
   delete: deleteUser,
   toggleActive
 };

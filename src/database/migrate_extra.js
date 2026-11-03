@@ -1,5 +1,5 @@
 /**
- * Applique les migrations numérotées 002→012 dans l'ordre.
+ * Applique les migrations numérotées 002→013 dans l'ordre.
  * Bases déjà initialisées : npm run db:migrate:extra
  * Nouvelle base vide : npm run db:migrate:all (schéma + ce fichier).
  * Option prod : RUN_MIGRATIONS_ON_START=1 dans server.js.
@@ -19,10 +19,11 @@ const MIGRATIONS = [
   '010_beneficiary_id_proof.sql',
   '011_role_permissions.sql',
   '012_user_special_access.sql',
+  '013_user_token_version.sql',
 ];
 
 async function applyExtraMigrations(pool) {
-  console.log('📦 Applying extra migrations (002–012)...');
+  console.log('📦 Applying extra migrations (002–013)...');
   for (const file of MIGRATIONS) {
     const filePath = path.join(__dirname, 'migrations', file);
     if (!fs.existsSync(filePath)) {

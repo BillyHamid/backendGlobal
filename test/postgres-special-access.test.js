@@ -20,6 +20,8 @@ test('special access migration and HTTP flows on isolated PostgreSQL', {
     const sqlFile = name => fs.readFileSync(path.join(__dirname, '../src/database', name), 'utf8');
     await pool.query(sqlFile('schema.sql'));
     await pool.query(sqlFile('migrations/011_role_permissions.sql'));
+    // Reproduire une base existante avant l'ajout de la version des sessions.
+    await pool.query('ALTER TABLE users DROP COLUMN token_version');
     const bcrypt = require('bcryptjs');
     const password = await bcrypt.hash('isolated-test-password', 4);
     const addUser = async (email, role, name) => (await pool.query(
@@ -30,6 +32,13 @@ test('special access migration and HTTP flows on isolated PostgreSQL', {
     const idrissa = await addUser('idrissa@example.test', 'sender_agent', 'Idrissa test');
     const razack = await addUser('razack@globalexchange.com', 'sender_agent', 'Ancien compte test');
     const ordinary = await addUser('ordinary@example.test', 'sender_agent', 'Agent ordinaire test');
+
+    await t.test('session migration initializes existing accounts without resetting credentials', async () => {
+      await pool.query(sqlFile('migrations/013_user_token_version.sql'));
+      const accounts = (await pool.query('SELECT password, token_version FROM users')).rows;
+      assert.equal(accounts.length, 4);
+      assert.ok(accounts.every(account => account.token_version === 0 && account.password === password));
+    });
 
     await t.test('migration preserves legacy access once and never restores a revoked grant', async () => {
       const migration = sqlFile('migrations/012_user_special_access.sql');
@@ -127,6 +136,26 @@ test('special access migration and HTTP flows on isolated PostgreSQL', {
       assert.equal((await loan(idrissa, admin)).status, 403);
       const wallets = await request('/api/special-expenses/wallets');
       assert.ok(!wallets.body.data.some(w => w.userId === idrissa));
+    });
+
+    await t.test('password reset is hashed, invalidates existing sessions and survives migration reruns', async () => {
+      const resetResult = await request(`/api/users/${idrissa}/password`, { method: 'PUT', body: {
+        newPassword: 'new-postgres-test-password', confirmPassword: 'new-postgres-test-password',
+      } });
+      assert.equal(resetResult.status, 200);
+      const stored = (await pool.query('SELECT password, token_version FROM users WHERE id = $1', [idrissa])).rows[0];
+      assert.equal(stored.token_version, 1);
+      assert.ok(await bcrypt.compare('new-postgres-test-password', stored.password));
+      assert.equal((await request('/api/auth/me', { user: idrissa })).status, 401);
+      await pool.query(sqlFile('migrations/013_user_token_version.sql'));
+      assert.equal((await pool.query('SELECT token_version FROM users WHERE id = $1', [idrissa])).rows[0].token_version, 1);
+      const oldLogin = await request('/api/auth/login', { method: 'POST', body: { email: 'idrissa@example.test', password: 'isolated-test-password' } });
+      assert.equal(oldLogin.status, 401);
+      const newLogin = await request('/api/auth/login', { method: 'POST', body: { email: 'idrissa@example.test', password: 'new-postgres-test-password' } });
+      assert.equal(newLogin.status, 200);
+      tokens.set(idrissa, newLogin.body.data.token);
+      assert.equal((await request('/api/auth/me', { user: idrissa })).status, 200);
+      assert.equal((await request('/api/auth/me')).status, 200);
     });
   } finally {
     if (server) await new Promise(resolve => server.close(resolve));

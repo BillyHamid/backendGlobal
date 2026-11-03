@@ -7,6 +7,7 @@
     "test": "node --test test/*.test.js",
     "db:migrate:roles": "node src/database/migrate_011_role_permissions.js",
     "db:migrate:special-access": "node src/database/migrate_012_user_special_access.js",
+    "db:migrate:password-sessions": "node src/database/migrate_013_user_token_version.js",
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "db:migrate": "node src/database/migrate.js",

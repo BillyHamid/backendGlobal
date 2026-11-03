@@ -13,6 +13,7 @@ const generateToken = (user) => {
     country: user.country ?? null,
     agentCode: user.agent_code ?? null,
     isActive: user.is_active,
+    tokenVersion: user.token_version,
   };
   return jwt.sign(
     payload,
@@ -100,7 +101,7 @@ const register = asyncHandler(async (req, res) => {
   const result = await query(
     `INSERT INTO users (email, password, name, phone, role, country, agent_code)
      VALUES ($1, $2, $3, $4, $5, $6, $7)
-     RETURNING id, email, name, role, phone, country, agent_code, is_active, has_special_access, created_at`,
+     RETURNING id, email, name, role, phone, country, agent_code, is_active, has_special_access, token_version, created_at`,
     [email.toLowerCase(), hashedPassword, name, phone, role, country, agentCode]
   );
 
@@ -193,11 +194,11 @@ const changePassword = asyncHandler(async (req, res) => {
   const hashedPassword = await bcrypt.hash(newPassword, 10);
 
   // Update password
-  await query('UPDATE users SET password = $1 WHERE id = $2', [hashedPassword, req.user.id]);
+  await query('UPDATE users SET password = $1, token_version = token_version + 1 WHERE id = $2', [hashedPassword, req.user.id]);
 
   res.json({
     success: true,
-    message: 'Mot de passe modifié avec succès'
+    message: 'Mot de passe modifié. Veuillez vous reconnecter.'
   });
 });
 

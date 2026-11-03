@@ -18,6 +18,13 @@ const query = async (sql, params = []) => {
     users.forEach(user => { counts[user.role] = (counts[user.role] || 0) + 1; });
     return result(Object.entries(counts).map(([role, count]) => ({ role, count })));
   }
+  if (sql.includes('UPDATE users SET password')) {
+    const user = users.get(params[1]);
+    if (!user) return result([]);
+    user.password = params[0];
+    user.token_version += 1;
+    return result([{ id: user.id }]);
+  }
   if (sql.includes('UPDATE users')) {
     const user = users.get(params[6]);
     ['name', 'phone', 'country', 'agent_code', 'role', 'has_special_access'].forEach((key, i) => { if (params[i] != null) user[key] = params[i]; });
@@ -25,7 +32,7 @@ const query = async (sql, params = []) => {
   }
   if (sql.includes('INSERT INTO users')) {
     const id = require('node:crypto').randomUUID();
-    const user = { id, is_active: true, has_special_access: false };
+    const user = { id, is_active: true, has_special_access: false, token_version: 0 };
     ['email', 'password', 'name', 'phone', 'role', 'country', 'agent_code', 'has_special_access'].forEach((key, i) => { if (params[i] != null) user[key] = params[i]; });
     users.set(id, user);
     return result([{ ...user }]);
@@ -63,7 +70,7 @@ const reset = () => {
     [agentId, { id: agentId, name: 'Agent test', role: 'payer_agent', email: 'agent@example.test', is_active: true }],
   ];
   const password = require('bcryptjs').hashSync('local-test-password', 4);
-  records.forEach(([id, user]) => users.set(id, { ...user, password, has_special_access: false }));
+  records.forEach(([id, user]) => users.set(id, { ...user, password, has_special_access: false, token_version: 0 }));
   policies.clear();
 };
 const tokenFor = (id, role = 'admin') => jwt.sign({ userId: id, role, email: 'old@example.test', isActive: true }, process.env.JWT_SECRET);

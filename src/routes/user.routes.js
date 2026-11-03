@@ -39,6 +39,19 @@ router.put('/:id', authorize(ROLES.ADMIN), [
   validate
 ], userController.update);
 
+// PUT /api/users/:id/password - Réinitialisation réservée aux administrateurs.
+router.put('/:id/password', authorize(ROLES.ADMIN), [
+  param('id').isUUID().withMessage('ID invalide'),
+  body('newPassword').isString().withMessage('Mot de passe requis').bail()
+    .isLength({ min: 6 }).withMessage('Mot de passe : 6 caractères minimum').bail()
+    .custom(value => Buffer.byteLength(value, 'utf8') <= 72)
+    .withMessage('Mot de passe trop long (72 octets maximum)'),
+  body('confirmPassword').isString().withMessage('Confirmation requise').bail()
+    .custom((value, { req }) => value === req.body.newPassword)
+    .withMessage('Les deux mots de passe doivent être identiques'),
+  validate
+], userController.resetPassword);
+
 // DELETE /api/users/:id - Delete user (admin only)
 router.delete('/:id', authorize(ROLES.ADMIN), [
   param('id').isUUID().withMessage('ID invalide'),

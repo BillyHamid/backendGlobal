@@ -8,7 +8,7 @@ const validate = (req, res, next) => {
     const errorList = errors.array().map(err => ({
       field: err.path || err.param,
       message: err.msg,
-      value: err.value
+      ...(!/password/i.test(err.path || err.param || '') ? { value: err.value } : {})
     }));
     const summary = errorList.map(e => `${e.field}: ${e.message}`).join('; ');
     return res.status(400).json({

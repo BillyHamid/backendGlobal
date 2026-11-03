@@ -2,6 +2,19 @@
 
 Backend Node.js/Express pour la plateforme de transfert d'argent Global Exchange.
 
+## Modifier le mot de passe d'un utilisateur
+
+Dans **Utilisateurs & Agents**, l'administrateur clique sur **Mot de passe** sur la ligne du compte, saisit le nouveau mot de passe deux fois et enregistre. Le rôle, les accès et le statut actif du compte restent inchangés. Un administrateur qui modifie son propre mot de passe est déconnecté également.
+
+L'API `PUT /api/users/:id/password` est réservée au rôle administrateur et reçoit `newPassword` et `confirmPassword`. Les mots de passe sont hachés avec bcrypt, ne sont pas renvoyés dans les réponses (y compris les erreurs de validation), et ne sont pas inscrits dans les journaux. Les sessions existantes du compte sont révoquées par incrément de `users.token_version`. Une nouvelle connexion utilise la version actuelle ; les tokens antérieurs à la migration restent valables à la version 0 tant que le mot de passe n'a pas changé. La route personnelle `/api/auth/change-password` révoque également les sessions.
+
+Déploiement de cette fonctionnalité sur l'installation aaPanel :
+
+1. Livrer le nouveau backend dans `/www/wwwroot/server.globalexchangeusa.cloud`, puis y exécuter `npm run db:migrate:password-sessions` **avant de redémarrer l'API**. Cette migration 013 est idempotente, incluse dans `db:migrate:extra`, et ne modifie aucun mot de passe.
+2. Dans aaPanel : **Site web → Projet Node → server_globalexchangeusa_cloud → État du service → Redémarrage**. Le port 4001 doit rester configuré dans `.env` (`PORT=4001`), sans modifier `src/server.js`.
+3. Livrer le frontend reconstruit avec `VITE_API_URL=https://server.globalexchangeusa.cloud/api`. Le site pointe désormais sur `/www/wwwroot/globalexchangeusa.cloud/globalEX/dist` : mettre à jour le dépôt `globalEX` avec son build versionné, sans recopier une ancienne interface à la racine du domaine.
+4. Actualiser la page, puis vérifier la présence du bouton **Mot de passe** avec un compte administrateur. Ne réinitialiser un compte réel qu'à la demande de son administrateur.
+
 ## Gestion des rôles et permissions
 
 L'administrateur peut attribuer un rôle dans **Utilisateurs & Agents → Modifier** et configurer les droits opérationnels dans **Rôles & Permissions**. Les effectifs affichés viennent de la base. Les permissions des trois rôles non administrateurs sont enregistrées dans `role_permissions` ; sans configuration, les droits initiaux s'appliquent.

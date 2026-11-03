@@ -11,6 +11,9 @@ async function runSchemaVerification(pool) {
   const specialAccess = await pool.query(`SELECT 1 FROM information_schema.columns
     WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'has_special_access'`);
   if (specialAccess.rowCount === 0) issues.push('Colonne users.has_special_access absente (migration 012)');
+  const tokenVersion = await pool.query(`SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'token_version'`);
+  if (tokenVersion.rowCount === 0) issues.push('Colonne users.token_version absente (migration 013)');
 
   const reg = await pool.query(
     `SELECT to_regclass('public.financial_reports') AS reg`
