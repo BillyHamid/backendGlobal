@@ -1,11 +1,11 @@
 const express = require('express');
 const statsController = require('../controllers/stats.controller');
-const { authenticate } = require('../middleware/auth.middleware');
+const { authenticate, hasPermission } = require('../middleware/auth.middleware');
 
 const router = express.Router();
 
 // All routes require authentication
-router.use(authenticate);
+router.use(authenticate, hasPermission('transfers.view'));
 
 // GET /api/stats/dashboard - Get dashboard statistics
 router.get('/dashboard', statsController.getDashboardStats);

@@ -3,7 +3,7 @@ const jwt = require('jsonwebtoken');
 const { query } = require('../config/database');
 const { asyncHandler, ApiError } = require('../middleware/error.middleware');
 
-// Generate JWT token with essential claims (évite SELECT user à chaque requête)
+// Les claims décrivent la connexion ; authenticate relit les droits actuels en base.
 const generateToken = (user) => {
   const payload = {
     userId: user.id,
@@ -63,6 +63,8 @@ const login = asyncHandler(async (req, res) => {
         email: user.email,
         name: user.name,
         role: user.role,
+        specialAccess: user.has_special_access === true,
+        permissions: await require('../services/permissions.service').getPermissions(user),
         phone: user.phone,
         country: user.country,
         agentCode: user.agent_code,
@@ -98,7 +100,7 @@ const register = asyncHandler(async (req, res) => {
   const result = await query(
     `INSERT INTO users (email, password, name, phone, role, country, agent_code)
      VALUES ($1, $2, $3, $4, $5, $6, $7)
-     RETURNING id, email, name, role, phone, country, agent_code, is_active, created_at`,
+     RETURNING id, email, name, role, phone, country, agent_code, is_active, has_special_access, created_at`,
     [email.toLowerCase(), hashedPassword, name, phone, role, country, agentCode]
   );
 
@@ -115,6 +117,8 @@ const register = asyncHandler(async (req, res) => {
         email: user.email,
         name: user.name,
         role: user.role,
+        specialAccess: user.has_special_access === true,
+        permissions: await require('../services/permissions.service').getPermissions(user),
         phone: user.phone,
         country: user.country,
         agentCode: user.agent_code,
@@ -129,7 +133,7 @@ const register = asyncHandler(async (req, res) => {
 // @route   GET /api/auth/me
 const getMe = asyncHandler(async (req, res) => {
   const result = await query(
-    'SELECT id, email, name, role, phone, country, agent_code, is_active, created_at FROM users WHERE id = $1',
+    'SELECT id, email, name, role, phone, country, agent_code, is_active, has_special_access, created_at FROM users WHERE id = $1',
     [req.user.id]
   );
 
@@ -146,6 +150,8 @@ const getMe = asyncHandler(async (req, res) => {
       email: user.email,
       name: user.name,
       role: user.role,
+      permissions: req.user.permissions,
+      specialAccess: user.has_special_access === true,
       phone: user.phone,
       country: user.country,
       agentCode: user.agent_code,

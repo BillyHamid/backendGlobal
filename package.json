@@ -4,6 +4,9 @@
   "description": "Backend API for Global Exchange - Money Transfer Platform",
   "main": "src/server.js",
   "scripts": {
+    "test": "node --test test/*.test.js",
+    "db:migrate:roles": "node src/database/migrate_011_role_permissions.js",
+    "db:migrate:special-access": "node src/database/migrate_012_user_special_access.js",
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "db:migrate": "node src/database/migrate.js",

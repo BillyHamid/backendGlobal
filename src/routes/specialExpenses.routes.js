@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { authenticate } = require('../middleware/auth.middleware');
+const { authenticate, hasPermission } = require('../middleware/auth.middleware');
 const { uploadReceiptFile } = require('../middleware/specialExpenses.upload');
 const {
   getTfeesBalance,
@@ -13,7 +13,7 @@ const {
 } = require('../controllers/specialExpenses.controller');
 
 // Toutes les routes nécessitent une authentification JWT
-router.use(authenticate);
+router.use(authenticate, hasPermission('special_expenses.manage'));
 
 // ── Dépenses simples ─────────────────────────
 router.get('/tfees-balance', getTfeesBalance);

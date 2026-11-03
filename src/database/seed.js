@@ -32,6 +32,7 @@ async function seed() {
         email: 'razack@globalexchange.com',
         passSuffix: 'razack',
         name: 'Zongo Razack',
+        has_special_access: true,
         phone: '+1 555 123 4567',
         role: 'sender_agent',
         country: 'USA',
@@ -79,8 +80,8 @@ async function seed() {
       const plainPassword = `${PASS_ROOT}${u.passSuffix}`;
       const hashedPassword = await bcrypt.hash(plainPassword, 10);
       await pool.query(
-        `INSERT INTO users (email, password, name, phone, role, country, agent_code)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `INSERT INTO users (email, password, name, phone, role, country, agent_code, has_special_access)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          ON CONFLICT (email) DO UPDATE SET
            password = EXCLUDED.password,
            name = EXCLUDED.name,
@@ -88,7 +89,7 @@ async function seed() {
            role = EXCLUDED.role,
            country = EXCLUDED.country,
            agent_code = EXCLUDED.agent_code`,
-        [u.email, hashedPassword, u.name, u.phone, u.role, u.country, u.agent_code]
+        [u.email, hashedPassword, u.name, u.phone, u.role, u.country, u.agent_code, u.has_special_access === true]
       );
     }
     // S'assurer que l'admin a le bon nom (même si déjà inséré)

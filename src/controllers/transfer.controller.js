@@ -646,7 +646,7 @@ const appendInitialLedgerForTransferTx = async (client, {
   }
 };
 
-// @desc    Mettre à jour un transfert en attente (admin ou Razack uniquement)
+// @desc    Mettre à jour un transfert en attente (permission transfers.edit)
 // @route   PATCH /api/transfers/:id
 const updateTransfer = asyncHandler(async (req, res) => {
   const transferId = req.params.id;

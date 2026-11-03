@@ -2,7 +2,7 @@ const express = require('express');
 const { body, param, query } = require('express-validator');
 const transferController = require('../controllers/transfer.controller');
 const { validate } = require('../middleware/validate.middleware');
-const { authenticate, hasPermission, canModifyTransferAdminOrRazack, canCancelTransferPrivileged } = require('../middleware/auth.middleware');
+const { authenticate, hasPermission } = require('../middleware/auth.middleware');
 const { uploadProof, validateProofUpload } = require('../middleware/upload.middleware');
 const { maybeMultipartTransferCreate } = require('../middleware/transferCreateBody.middleware');
 const { VALID_SEND_METHODS } = require('../config/constants');
@@ -63,8 +63,8 @@ router.post('/', hasPermission('transfers.create'), maybeMultipartTransferCreate
   validate
 ], transferController.create);
 
-// PATCH /api/transfers/:id - Modifier un transfert en attente (admin ou Razack uniquement)
-router.patch('/:id', hasPermission('transfers.view'), canModifyTransferAdminOrRazack, [
+// PATCH /api/transfers/:id - Modifier un transfert en attente selon les permissions effectives
+router.patch('/:id', hasPermission('transfers.edit'), [
   param('id').isUUID().withMessage('ID invalide'),
   body('sender.firstName').notEmpty().withMessage('Prénom expéditeur requis'),
   body('sender.lastName').notEmpty().withMessage('Nom expéditeur requis'),
@@ -112,26 +112,17 @@ router.get('/:id/proof', hasPermission('transfers.view'), [
   validate
 ], transferController.downloadProof);
 
-// PATCH /api/transfers/:id/cancel - Cancel transfer (admin, superviseur ou Razack)
-router.patch('/:id/cancel', canCancelTransferPrivileged, [
+// PATCH /api/transfers/:id/cancel - Cancel transfer selon les permissions effectives
+router.patch('/:id/cancel', hasPermission('transfers.cancel'), [
   param('id').isUUID().withMessage('ID invalide'),
   body('reason').optional().isString(),
   validate
 ], transferController.cancel);
 
-// DELETE /api/transfers/:id - Delete transfer (admin only)
-router.delete('/:id', [
+// DELETE /api/transfers/:id - Delete transfer selon les permissions effectives
+router.delete('/:id', hasPermission('transfers.delete'), [
   param('id').isUUID().withMessage('ID invalide'),
   validate
-], (req, res, next) => {
-  // Vérifier que l'utilisateur est admin
-  if (req.user.role !== 'admin') {
-    return res.status(403).json({
-      success: false,
-      message: 'Seuls les administrateurs peuvent supprimer des transferts'
-    });
-  }
-  next();
-}, transferController.deleteTransfer);
+], transferController.deleteTransfer);
 
 module.exports = router;

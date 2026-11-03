@@ -102,6 +102,7 @@ app.get('/api/health', (req, res) => {
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/roles', require('./routes/role.routes'));
 app.use('/api/transfers', transferRoutes);
 app.use('/api/beneficiaries', beneficiaryRoutes);
 app.use('/api/senders', senderRoutes);

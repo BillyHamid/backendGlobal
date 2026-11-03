@@ -55,11 +55,6 @@ const FEE_TIERS = [
   // Pour > $1000: $20 par tranche de $1000 (géré dans calculateFees)
 ];
 
-/** Compte autorisé à modifier les transferts (en plus du rôle admin) — aligné seed / dépenses spéciales */
-const RAZACK_TRANSFER_EDIT_EMAIL = (
-  process.env.RAZACK_TRANSFER_EDIT_EMAIL || 'razack@globalexchange.com'
-).toLowerCase();
-
 module.exports = {
   ROLES,
   TRANSFER_STATUS,
@@ -67,6 +62,5 @@ module.exports = {
   VALID_SEND_METHODS,
   COUNTRIES,
   EXCHANGE_RATES,
-  FEE_TIERS,
-  RAZACK_TRANSFER_EDIT_EMAIL
+  FEE_TIERS
 };

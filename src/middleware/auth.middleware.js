@@ -1,6 +1,6 @@
 const jwt = require('jsonwebtoken');
 
-// Verify JWT token - utilise les claims du JWT (pas de SELECT à chaque requête)
+// Le token identifie l'utilisateur ; la base fournit ses droits actuels.
 const authenticate = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
@@ -15,29 +15,11 @@ const authenticate = async (req, res, next) => {
     const token = authHeader.split(' ')[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // JWT avec claims complets (login/register récents) : pas de DB
-    if (decoded.role !== undefined && decoded.email !== undefined) {
-      if (decoded.isActive === false) {
-        return res.status(401).json({
-          success: false,
-          message: 'Compte désactivé. Contactez l\'administrateur.'
-        });
-      }
-      req.user = {
-        id: decoded.userId,
-        email: decoded.email,
-        name: decoded.name,
-        role: decoded.role,
-        country: decoded.country ?? null,
-        agentCode: decoded.agentCode ?? null
-      };
-      return next();
-    }
-
-    // JWT legacy (userId seul) : fallback DB pour rétrocompatibilité
+    // Une modification de rôle ou une désactivation prend effet dès la requête suivante,
+    // même pour les tokens émis avant cette modification.
     const { query } = require('../config/database');
     const result = await query(
-      'SELECT id, email, name, role, country, agent_code, is_active FROM users WHERE id = $1',
+      'SELECT id, email, name, role, country, agent_code, is_active, has_special_access FROM users WHERE id = $1',
       [decoded.userId]
     );
 
@@ -62,8 +44,11 @@ const authenticate = async (req, res, next) => {
       name: user.name,
       role: user.role,
       country: user.country,
-      agentCode: user.agent_code
+      agentCode: user.agent_code,
+      specialAccess: user.has_special_access === true
     };
+    const { getPermissions } = require('../services/permissions.service');
+    req.user.permissions = await getPermissions(user);
 
     next();
   } catch (error) {
@@ -106,36 +91,6 @@ const authorize = (...allowedRoles) => {
 
 // Check specific permission
 const hasPermission = (permission) => {
-  const rolePermissions = {
-    admin: [
-      'transfers.create', 'transfers.view', 'transfers.edit', 'transfers.cancel', 'transfers.pay', 'transfers.delete',
-      'users.create', 'users.view', 'users.edit', 'users.delete',
-      'beneficiaries.create', 'beneficiaries.view', 'beneficiaries.edit',
-      'senders.create', 'senders.view', 'senders.edit',
-      'reports.view', 'reports.export',
-      'settings.view', 'settings.edit',
-      'audit.view'
-    ],
-    supervisor: [
-      'transfers.view', 'transfers.edit', 'transfers.cancel',
-      'users.view',
-      'beneficiaries.view',
-      'senders.view',
-      'reports.view', 'reports.export'
-    ],
-    // Tous les agents (USA et BF) peuvent créer des transferts ET marquer comme payé
-    sender_agent: [
-      'transfers.create', 'transfers.view', 'transfers.pay',
-      'beneficiaries.create', 'beneficiaries.view',
-      'senders.create', 'senders.view'
-    ],
-    payer_agent: [
-      'transfers.create', 'transfers.view', 'transfers.pay',
-      'beneficiaries.create', 'beneficiaries.view',
-      'senders.create', 'senders.view'
-    ]
-  };
-
   return (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({
@@ -144,7 +99,7 @@ const hasPermission = (permission) => {
       });
     }
 
-    const userPermissions = rolePermissions[req.user.role] || [];
+    const userPermissions = req.user.permissions || [];
     
     if (!userPermissions.includes(permission)) {
       return res.status(403).json({
@@ -157,51 +112,4 @@ const hasPermission = (permission) => {
   };
 };
 
-/** Annulation de transfert : admin, superviseur, ou Zongo Razack (même email que modification privilégiée) */
-const canCancelTransferPrivileged = (req, res, next) => {
-  if (!req.user) {
-    return res.status(401).json({
-      success: false,
-      message: 'Authentification requise.'
-    });
-  }
-  const { RAZACK_TRANSFER_EDIT_EMAIL } = require('../config/constants');
-  const email = (req.user.email || '').toLowerCase();
-  if (req.user.role === 'admin' || req.user.role === 'supervisor') {
-    return next();
-  }
-  if (email === RAZACK_TRANSFER_EDIT_EMAIL) {
-    return next();
-  }
-  return res.status(403).json({
-    success: false,
-    message: 'Permission \'transfers.cancel\' requise.'
-  });
-};
-
-/** Modification de transfert : admin ou compte Razack uniquement (pas superviseur ni autres agents) */
-const canModifyTransferAdminOrRazack = (req, res, next) => {
-  if (!req.user) {
-    return res.status(401).json({
-      success: false,
-      message: 'Authentification requise.'
-    });
-  }
-  const { RAZACK_TRANSFER_EDIT_EMAIL } = require('../config/constants');
-  const email = (req.user.email || '').toLowerCase();
-  if (req.user.role === 'admin' || email === RAZACK_TRANSFER_EDIT_EMAIL) {
-    return next();
-  }
-  return res.status(403).json({
-    success: false,
-    message: 'Seuls l\'administrateur et Razack peuvent modifier un transfert.'
-  });
-};
-
-module.exports = {
-  authenticate,
-  authorize,
-  hasPermission,
-  canCancelTransferPrivileged,
-  canModifyTransferAdminOrRazack
-};
+module.exports = { authenticate, authorize, hasPermission };

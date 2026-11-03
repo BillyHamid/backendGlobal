@@ -2,7 +2,7 @@ const express = require('express');
 const { body, param } = require('express-validator');
 const userController = require('../controllers/user.controller');
 const { validate } = require('../middleware/validate.middleware');
-const { authenticate, authorize } = require('../middleware/auth.middleware');
+const { authenticate, authorize, hasPermission } = require('../middleware/auth.middleware');
 const { ROLES } = require('../config/constants');
 
 const router = express.Router();
@@ -11,10 +11,10 @@ const router = express.Router();
 router.use(authenticate);
 
 // GET /api/users - List all users (admin, supervisor)
-router.get('/', authorize(ROLES.ADMIN, ROLES.SUPERVISOR), userController.getAll);
+router.get('/', hasPermission('users.view'), userController.getAll);
 
 // GET /api/users/:id - Get user by ID
-router.get('/:id', [
+router.get('/:id', hasPermission('users.view'), [
   param('id').isUUID().withMessage('ID invalide'),
   validate
 ], userController.getById);
@@ -25,6 +25,7 @@ router.post('/', authorize(ROLES.ADMIN), [
   body('password').isLength({ min: 6 }).withMessage('Mot de passe: 6 caractères minimum'),
   body('name').notEmpty().withMessage('Nom requis'),
   body('role').isIn(['admin', 'supervisor', 'sender_agent', 'payer_agent']).withMessage('Rôle invalide'),
+  body('specialAccess').optional().isBoolean({ strict: true }).withMessage('Accès spécial invalide'),
   validate
 ], userController.create);
 
@@ -33,6 +34,8 @@ router.put('/:id', authorize(ROLES.ADMIN), [
   param('id').isUUID().withMessage('ID invalide'),
   body('name').optional().notEmpty().withMessage('Nom invalide'),
   body('email').optional().isEmail().withMessage('Email invalide'),
+  body('role').optional().isIn(Object.values(ROLES)).withMessage('Rôle invalide'),
+  body('specialAccess').optional().isBoolean({ strict: true }).withMessage('Accès spécial invalide'),
   validate
 ], userController.update);
 

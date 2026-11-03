@@ -9,7 +9,7 @@ const getAll = asyncHandler(async (req, res) => {
   const offset = (page - 1) * limit;
 
   let sql = `
-    SELECT id, email, name, role, phone, country, agent_code, is_active, created_at
+    SELECT id, email, name, role, phone, country, agent_code, is_active, has_special_access, created_at
     FROM users
     WHERE 1=1
   `;
@@ -49,6 +49,7 @@ const getAll = asyncHandler(async (req, res) => {
       country: user.country,
       agentCode: user.agent_code,
       isActive: user.is_active,
+      specialAccess: user.has_special_access === true,
       createdAt: user.created_at
     })),
     pagination: {
@@ -64,7 +65,7 @@ const getAll = asyncHandler(async (req, res) => {
 // @route   GET /api/users/:id
 const getById = asyncHandler(async (req, res) => {
   const result = await query(
-    'SELECT id, email, name, role, phone, country, agent_code, is_active, created_at FROM users WHERE id = $1',
+    'SELECT id, email, name, role, phone, country, agent_code, is_active, has_special_access, created_at FROM users WHERE id = $1',
     [req.params.id]
   );
 
@@ -85,6 +86,7 @@ const getById = asyncHandler(async (req, res) => {
       country: user.country,
       agentCode: user.agent_code,
       isActive: user.is_active,
+      specialAccess: user.has_special_access === true,
       createdAt: user.created_at
     }
   });
@@ -93,7 +95,7 @@ const getById = asyncHandler(async (req, res) => {
 // @desc    Create user
 // @route   POST /api/users
 const create = asyncHandler(async (req, res) => {
-  const { email, password, name, phone, role, country, agentCode } = req.body;
+  const { email, password, name, phone, role, country, agentCode, specialAccess = false } = req.body;
 
   // Check if email exists
   const existing = await query('SELECT id FROM users WHERE email = $1', [email.toLowerCase()]);
@@ -105,10 +107,10 @@ const create = asyncHandler(async (req, res) => {
   const hashedPassword = await bcrypt.hash(password, 10);
 
   const result = await query(
-    `INSERT INTO users (email, password, name, phone, role, country, agent_code)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
-     RETURNING id, email, name, role, phone, country, agent_code, is_active, created_at`,
-    [email.toLowerCase(), hashedPassword, name, phone, role, country, agentCode]
+    `INSERT INTO users (email, password, name, phone, role, country, agent_code, has_special_access)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     RETURNING id, email, name, role, phone, country, agent_code, is_active, has_special_access, created_at`,
+    [email.toLowerCase(), hashedPassword, name, phone, role, country, agentCode, specialAccess]
   );
 
   const user = result.rows[0];
@@ -125,6 +127,7 @@ const create = asyncHandler(async (req, res) => {
       country: user.country,
       agentCode: user.agent_code,
       isActive: user.is_active,
+      specialAccess: user.has_special_access === true,
       createdAt: user.created_at
     }
   });
@@ -133,7 +136,10 @@ const create = asyncHandler(async (req, res) => {
 // @desc    Update user
 // @route   PUT /api/users/:id
 const update = asyncHandler(async (req, res) => {
-  const { name, phone, country, agentCode, role } = req.body;
+  const { name, phone, country, agentCode, role, specialAccess } = req.body;
+  if (req.params.id === req.user.id && role && role !== req.user.role) {
+    throw new ApiError(400, 'Un administrateur ne peut pas retirer son propre rôle.');
+  }
 
   // Check if user exists
   const existing = await query('SELECT id FROM users WHERE id = $1', [req.params.id]);
@@ -147,10 +153,11 @@ const update = asyncHandler(async (req, res) => {
          phone = COALESCE($2, phone),
          country = COALESCE($3, country),
          agent_code = COALESCE($4, agent_code),
-         role = COALESCE($5, role)
-     WHERE id = $6
-     RETURNING id, email, name, role, phone, country, agent_code, is_active, created_at`,
-    [name, phone, country, agentCode, role, req.params.id]
+         role = COALESCE($5, role),
+         has_special_access = COALESCE($6, has_special_access)
+     WHERE id = $7
+     RETURNING id, email, name, role, phone, country, agent_code, is_active, has_special_access, created_at`,
+    [name, phone, country, agentCode, role, specialAccess, req.params.id]
   );
 
   const user = result.rows[0];
@@ -167,6 +174,7 @@ const update = asyncHandler(async (req, res) => {
       country: user.country,
       agentCode: user.agent_code,
       isActive: user.is_active,
+      specialAccess: user.has_special_access === true,
       createdAt: user.created_at
     }
   });
@@ -175,6 +183,7 @@ const update = asyncHandler(async (req, res) => {
 // @desc    Delete user
 // @route   DELETE /api/users/:id
 const deleteUser = asyncHandler(async (req, res) => {
+  if (req.params.id === req.user.id) throw new ApiError(400, 'Vous ne pouvez pas supprimer votre propre compte.');
   const result = await query('DELETE FROM users WHERE id = $1 RETURNING id', [req.params.id]);
 
   if (result.rows.length === 0) {
@@ -190,6 +199,7 @@ const deleteUser = asyncHandler(async (req, res) => {
 // @desc    Toggle user active status
 // @route   PATCH /api/users/:id/toggle-active
 const toggleActive = asyncHandler(async (req, res) => {
+  if (req.params.id === req.user.id) throw new ApiError(400, 'Vous ne pouvez pas désactiver votre propre compte.');
   const result = await query(
     `UPDATE users SET is_active = NOT is_active WHERE id = $1
      RETURNING id, email, name, is_active`,

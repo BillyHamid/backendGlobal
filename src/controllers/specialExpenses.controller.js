@@ -1,9 +1,9 @@
 /**
  * Controller: Dépenses Spéciales
- * Accès RBAC : admin + Zongo Razack (razack@globalexchange.com)
+ * Accès RBAC : administrateurs et utilisateurs disposant de l'accès spécial.
  *
  * - Dépenses simples → déduites de TFEES (frais USA→BF payés cumulés)
- * - Prêts           → entre admin et Zongo, avec caisses personnelles
+ * - Prêts           → entre utilisateurs autorisés, avec caisses personnelles
  */
 
 const path = require('path');
@@ -16,15 +16,12 @@ const logger = require('../utils/logger');
 // HELPERS RBAC
 // ─────────────────────────────────────────────
 
-/** Identifie les deux utilisateurs autorisés */
-const RAZACK_EMAIL = 'razack@globalexchange.com';
-
 const isAuthorized = (user) =>
-  user.role === 'admin' || user.email === RAZACK_EMAIL;
+  user.permissions?.includes('special_expenses.manage');
 
 const assertAuthorized = (user) => {
   if (!isAuthorized(user)) {
-    throw new ApiError(403, 'Accès refusé. Module réservé à l\'Admin et à Zongo Razack.');
+    throw new ApiError(403, 'Accès refusé. Demandez à un administrateur de vous attribuer l’accès spécial.');
   }
 };
 
@@ -191,13 +188,12 @@ const downloadReceipt = asyncHandler(async (req, res) => {
 const getWallets = asyncHandler(async (req, res) => {
   assertAuthorized(req.user);
 
-  // Récupérer les deux utilisateurs autorisés
+  // Les comptes désactivés ou dont l'accès a été retiré ne participent plus aux nouveaux prêts.
   const usersResult = await query(
     `SELECT id, name, email, role
      FROM users
-     WHERE role = 'admin' OR email = $1
-     ORDER BY role DESC`,
-    [RAZACK_EMAIL]
+     WHERE is_active = true AND (role = 'admin' OR has_special_access = true)
+     ORDER BY name, id`
   );
 
   const wallets = await Promise.all(
@@ -261,34 +257,33 @@ const listLoans = asyncHandler(async (req, res) => {
 const createLoan = asyncHandler(async (req, res) => {
   assertAuthorized(req.user);
 
-  const { amount, reason, loan_date } = req.body;
+  const { amount, reason, loan_date, borrower_id } = req.body;
 
   if (!amount || !reason || !loan_date) {
     throw new ApiError(400, 'Champs obligatoires manquants : montant, motif, date.');
   }
 
   const parsedAmount = parseFloat(amount);
-  if (isNaN(parsedAmount) || parsedAmount <= 0) {
+  if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
     throw new ApiError(400, 'Le montant doit être un nombre positif.');
   }
 
-  // Identifier les deux utilisateurs autorisés
+  // Le prêteur est toujours le compte connecté. Le bénéficiaire est choisi
+  // explicitement, car plusieurs administrateurs peuvent coexister.
   const usersResult = await query(
-    `SELECT id, name, email, role FROM users WHERE role = 'admin' OR email = $1`,
-    [RAZACK_EMAIL]
+    `SELECT id, name, email, role FROM users
+     WHERE is_active = true AND (role = 'admin' OR has_special_access = true)`
   );
-
-  const adminUser = usersResult.rows.find((u) => u.role === 'admin');
-  const razackUser = usersResult.rows.find((u) => u.email === RAZACK_EMAIL);
-
-  if (!adminUser || !razackUser) {
-    throw new ApiError(500, 'Utilisateurs autorisés introuvables dans la base.');
+  const recipients = usersResult.rows.filter(u => u.id !== req.user.id);
+  // Compatibilité avec l'ancien formulaire uniquement si le destinataire est unique.
+  const borrower = borrower_id
+    ? recipients.find(u => u.id === borrower_id)
+    : (recipients.length === 1 ? recipients[0] : null);
+  if (!borrower) {
+    throw new ApiError(400, 'Sélectionnez un autre utilisateur actif disposant de l’accès aux prêts.');
   }
-
-  // L'utilisateur connecté est le borrower (receveur), l'autre est le lender (donneur)
-  const currentIsAdmin = req.user.role === 'admin';
-  const borrowerId = currentIsAdmin ? razackUser.id : adminUser.id;
-  const lenderId = currentIsAdmin ? adminUser.id : razackUser.id;
+  const borrowerId = borrower.id;
+  const lenderId = req.user.id;
 
   // Transaction atomique
   const client = await pool.connect();

@@ -6,6 +6,11 @@ let lastCheck = null;
 
 async function runSchemaVerification(pool) {
   const issues = [];
+  const rolesTable = await pool.query("SELECT to_regclass('public.role_permissions') AS reg");
+  if (!rolesTable.rows[0]?.reg) issues.push('Table public.role_permissions absente (migration 011)');
+  const specialAccess = await pool.query(`SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'has_special_access'`);
+  if (specialAccess.rowCount === 0) issues.push('Colonne users.has_special_access absente (migration 012)');
 
   const reg = await pool.query(
     `SELECT to_regclass('public.financial_reports') AS reg`
